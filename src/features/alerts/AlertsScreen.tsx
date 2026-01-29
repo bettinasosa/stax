@@ -6,6 +6,8 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  Switch,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -14,17 +16,28 @@ import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
 import type { Event } from '../../data/schemas';
 import type { Holding } from '../../data/schemas';
 import { theme } from '../../utils/theme';
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+} from '../../services/notifications';
 
 type AlertItem = { event: Event; holding: Holding };
 
 /**
- * Alerts tab: upcoming events (maturity, valuation reminders, etc.) across the portfolio.
+ * Alerts tab: upcoming events, notifications toggle, Add custom reminder.
+ * Purpose: "See reminders and dates in one place."
  */
 export function AlertsScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
   const [items, setItems] = useState<AlertItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+
+  const loadNotifications = useCallback(async () => {
+    const enabled = await getNotificationPermission();
+    setNotificationsEnabled(enabled);
+  }, []);
 
   const load = useCallback(async () => {
     const holdings = await holdingRepo.getByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
@@ -46,6 +59,25 @@ export function AlertsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    if (value) {
+      const granted = await requestNotificationPermission();
+      setNotificationsEnabled(granted);
+      if (!granted) {
+        Alert.alert(
+          'Notifications',
+          'Permission denied. You can enable notifications in system settings.'
+        );
+      }
+    } else {
+      setNotificationsEnabled(false);
+    }
+  };
 
   const onPressAlert = (holdingId: string, eventId: string) => {
     (navigation as { navigate: (s: string, p: object) => void }).navigate('Holdings', {
@@ -71,22 +103,30 @@ export function AlertsScreen() {
     );
   }
 
-  if (items.length === 0) {
-    return (
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.emptyContainer}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.colors.textPrimary} />
-        }
-      >
-        <Text style={styles.emptyTitle}>No upcoming alerts</Text>
-        <Text style={styles.emptyText}>
-          Add events to holdings (maturity, valuation reminders) to see them here.
-        </Text>
-      </ScrollView>
-    );
-  }
+  const eventsList = (
+    <>
+      {items.length === 0 ? (
+        <Text style={styles.emptyListText}>No upcoming alerts</Text>
+      ) : (
+        items.map(({ event, holding }) => (
+          <TouchableOpacity
+            key={event.id}
+            style={styles.row}
+            onPress={() => onPressAlert(holding.id, event.id)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.rowLeft}>
+              <Text style={styles.holdingName} numberOfLines={1}>
+                {holding.name}
+              </Text>
+              <Text style={styles.eventKind}>{event.kind.replace(/_/g, ' ')}</Text>
+            </View>
+            <Text style={styles.date}>{formatDate(event.date)}</Text>
+          </TouchableOpacity>
+        ))
+      )}
+    </>
+  );
 
   return (
     <ScrollView
@@ -96,22 +136,23 @@ export function AlertsScreen() {
         <RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.colors.textPrimary} />
       }
     >
-      {items.map(({ event, holding }) => (
-        <TouchableOpacity
-          key={event.id}
-          style={styles.row}
-          onPress={() => onPressAlert(holding.id, event.id)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.rowLeft}>
-            <Text style={styles.holdingName} numberOfLines={1}>
-              {holding.name}
-            </Text>
-            <Text style={styles.eventKind}>{event.kind.replace(/_/g, ' ')}</Text>
-          </View>
-          <Text style={styles.date}>{formatDate(event.date)}</Text>
-        </TouchableOpacity>
-      ))}
+      <View style={styles.toggleRow}>
+        <Text style={styles.toggleLabel}>Notifications enabled</Text>
+        <Switch
+          value={notificationsEnabled}
+          onValueChange={handleNotificationsToggle}
+          trackColor={{ false: theme.colors.border, true: theme.colors.positive }}
+          thumbColor={theme.colors.white}
+        />
+      </View>
+      <Text style={styles.sectionTitle}>Upcoming</Text>
+      {eventsList}
+      <TouchableOpacity
+        style={styles.addReminderButton}
+        onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Holdings')}
+      >
+        <Text style={styles.addReminderText}>Add custom reminder</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -121,6 +162,41 @@ const styles = StyleSheet.create({
   content: {
     padding: theme.layout.screenPadding,
     paddingBottom: theme.spacing.lg,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    padding: theme.layout.screenPadding,
+    borderRadius: theme.layout.cardRadius,
+    marginBottom: theme.spacing.sm,
+  },
+  toggleLabel: {
+    ...theme.typography.body,
+    color: theme.colors.textPrimary,
+  },
+  sectionTitle: {
+    ...theme.typography.bodySemi,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  emptyListText: {
+    ...theme.typography.body,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.sm,
+  },
+  addReminderButton: {
+    marginTop: theme.spacing.sm,
+    padding: theme.spacing.sm,
+    borderRadius: theme.layout.cardRadius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+  },
+  addReminderText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.textPrimary,
   },
   center: {
     justifyContent: 'center',

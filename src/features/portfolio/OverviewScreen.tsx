@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Dimensions,
   TouchableOpacity,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { useSQLiteContext } from 'expo-sqlite';
 import { PieChart } from 'react-native-chart-kit';
 import { usePortfolio } from './usePortfolio';
 import {
@@ -18,6 +20,10 @@ import {
 } from './portfolioUtils';
 import { formatMoney } from '../../utils/money';
 import { theme } from '../../utils/theme';
+import { holdingRepo, eventRepo } from '../../data';
+import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
+import type { Event } from '../../data/schemas';
+import type { Holding } from '../../data/schemas';
 
 const CHART_COLORS = [
   '#7C3AED',
@@ -28,15 +34,40 @@ const CHART_COLORS = [
   '#EF4444',
 ];
 
+type UpcomingItem = { event: Event; holding: Holding };
+
 /**
- * Overview tab: total value, allocation chart, top 5, last updated, pull-to-refresh.
+ * Overview tab: total value, allocation, top 3 holdings, next 3 events, Add Holding CTA.
+ * Purpose: "What is my total, what is it made of, what needs attention."
  */
 export function OverviewScreen() {
+  const navigation = useNavigation();
+  const db = useSQLiteContext();
   const { portfolio, holdings, pricesBySymbol, totalBase, loading, error, refresh } = usePortfolio();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const withValues = holdingsWithValues(holdings, pricesBySymbol, baseCurrency);
   const allocation = allocationByAssetClass(withValues);
-  const top5 = withValues.slice(0, 5);
+  const top3 = withValues.slice(0, 3);
+  const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
+
+  const loadUpcoming = useCallback(async () => {
+    const portfolioHoldings = await holdingRepo.getByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+    const all: UpcomingItem[] = [];
+    const now = new Date().toISOString();
+    for (const holding of portfolioHoldings) {
+      const events = await eventRepo.getByHoldingId(db, holding.id);
+      for (const event of events) {
+        if (event.date >= now) all.push({ event, holding });
+      }
+    }
+    all.sort((a, b) => a.event.date.localeCompare(b.event.date));
+    setUpcoming(all.slice(0, 3));
+  }, [db]);
+
+  useEffect(() => {
+    if (holdings.length > 0) loadUpcoming();
+    else setUpcoming([]);
+  }, [holdings.length, loadUpcoming]);
 
   const pieData = allocation.map((slice, i) => ({
     name: slice.assetClass.replace(/_/g, ' '),
@@ -71,14 +102,34 @@ export function OverviewScreen() {
         style={styles.container}
         contentContainerStyle={styles.emptyContainer}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refresh} />
+          <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
         }
       >
         <Text style={styles.emptyTitle}>No holdings yet</Text>
-        <Text style={styles.emptySubtitle}>Add your first asset to see your portfolio value and allocation.</Text>
+        <Text style={styles.emptySubtitle}>
+          Add your first asset to see your portfolio value and allocation.
+        </Text>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', { screen: 'AddAsset' })}
+        >
+          <Text style={styles.primaryButtonText}>Add Holding</Text>
+        </TouchableOpacity>
       </ScrollView>
     );
   }
+
+  const asOfLabel = 'As of ' + new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const formatUpcomingDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+  const onPressUpcoming = (holdingId: string) => {
+    (navigation as { navigate: (s: string, p: object) => void }).navigate('Holdings', {
+      screen: 'HoldingDetail',
+      params: { holdingId },
+    });
+  };
 
   const screenWidth = Dimensions.get('window').width;
 
@@ -87,17 +138,25 @@ export function OverviewScreen() {
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
       refreshControl={
-        <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
+        <RefreshControl
+          refreshing={loading}
+          onRefresh={() => {
+            refresh();
+            loadUpcoming();
+          }}
+          tintColor={theme.colors.textPrimary}
+        />
       }
     >
       <View style={styles.totalCard}>
         <Text style={styles.totalLabel}>Total portfolio value</Text>
         <Text style={styles.totalValue}>{formatMoney(totalBase, baseCurrency)}</Text>
+        <Text style={styles.asOf}>{asOfLabel}</Text>
       </View>
 
       {allocation.length > 0 && (
         <View style={styles.chartSection}>
-          <Text style={styles.sectionTitle}>Allocation by asset class</Text>
+          <Text style={styles.sectionTitle}>Allocation</Text>
           <PieChart
             data={pieData}
             width={screenWidth - theme.layout.screenPadding * 2}
@@ -114,10 +173,10 @@ export function OverviewScreen() {
         </View>
       )}
 
-      {top5.length > 0 && (
+      {top3.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Top 5 positions</Text>
-          {top5.map((item: HoldingWithValue) => (
+          <Text style={styles.sectionTitle}>Top Holdings</Text>
+          {top3.map((item: HoldingWithValue) => (
             <View key={item.holding.id} style={styles.topRow}>
               <Text style={styles.topName} numberOfLines={1}>
                 {item.holding.name}
@@ -134,6 +193,39 @@ export function OverviewScreen() {
           ))}
         </View>
       )}
+
+      {upcoming.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Upcoming</Text>
+          {upcoming.map(({ event, holding }) => (
+            <TouchableOpacity
+              key={event.id}
+              style={styles.upcomingRow}
+              onPress={() => onPressUpcoming(holding.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.upcomingLeft}>
+                <Text style={styles.upcomingName} numberOfLines={1}>{holding.name}</Text>
+                <Text style={styles.upcomingKind}>{event.kind.replace(/_/g, ' ')}</Text>
+              </View>
+              <Text style={styles.upcomingDate}>{formatUpcomingDate(event.date)}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={styles.viewAllLink}
+            onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Alerts')}
+          >
+            <Text style={styles.viewAllText}>View all</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={styles.addHoldingButton}
+        onPress={() => (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', { screen: 'AddAsset' })}
+      >
+        <Text style={styles.addHoldingButtonText}>Add Holding</Text>
+      </TouchableOpacity>
 
       <Text style={styles.updated}>
         Prices refresh on pull and when you add or edit holdings.
@@ -189,6 +281,11 @@ const styles = StyleSheet.create({
     ...theme.typography.title,
     color: theme.colors.textPrimary,
   },
+  asOf: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    marginTop: theme.spacing.xs,
+  },
   chartSection: { marginBottom: theme.spacing.sm },
   section: { marginBottom: theme.spacing.sm },
   sectionTitle: {
@@ -208,6 +305,45 @@ const styles = StyleSheet.create({
   },
   topName: { flex: 1, ...theme.typography.caption, color: theme.colors.textPrimary },
   topValue: { ...theme.typography.captionMedium, color: theme.colors.textSecondary },
+  upcomingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.radius.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  upcomingLeft: { flex: 1 },
+  upcomingName: { ...theme.typography.caption, color: theme.colors.textPrimary },
+  upcomingKind: { ...theme.typography.small, color: theme.colors.textSecondary },
+  upcomingDate: { ...theme.typography.captionMedium, color: theme.colors.textTertiary },
+  viewAllLink: { marginTop: theme.spacing.xs, alignSelf: 'flex-start' },
+  viewAllText: { ...theme.typography.captionMedium, color: theme.colors.accent },
+  primaryButton: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.layout.cardRadius,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+  },
+  primaryButtonText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.background,
+  },
+  addHoldingButton: {
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.layout.cardRadius,
+    paddingVertical: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  addHoldingButtonText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.background,
+  },
   updated: {
     ...theme.typography.small,
     color: theme.colors.textTertiary,

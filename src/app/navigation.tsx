@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { OverviewScreen } from '../features/portfolio/OverviewScreen';
@@ -14,6 +14,20 @@ import { ProfileHeaderButton } from './ProfileHeaderButton';
 import { AddAssetHeaderButton } from './AddAssetHeaderButton';
 
 const Tab = createBottomTabNavigator();
+
+/** Tab bar icon using emoji to avoid @expo/vector-icons / expo-font resolution issues. */
+function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
+  return (
+    <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.6 }}>{emoji}</Text>
+  );
+}
+
+const tabIcons = {
+  Overview: (props: { focused: boolean }) => <TabIcon emoji="🏠" focused={props.focused} />,
+  Holdings: (props: { focused: boolean }) => <TabIcon emoji="📋" focused={props.focused} />,
+  Alerts: (props: { focused: boolean }) => <TabIcon emoji="🔔" focused={props.focused} />,
+  Insights: (props: { focused: boolean }) => <TabIcon emoji="📊" focused={props.focused} />,
+};
 const Stack = createNativeStackNavigator();
 
 const screenOptions = {
@@ -76,17 +90,38 @@ export function AppNavigation() {
         tabBarLabelStyle: { fontSize: 12 },
       }}
     >
-      <Tab.Screen name="Overview" component={OverviewScreen} options={{ title: 'Stax' }} />
+      <Tab.Screen
+        name="Overview"
+        component={OverviewScreen}
+        options={{
+          title: 'Overview',
+          tabBarIcon: tabIcons.Overview,
+        }}
+      />
       <Tab.Screen
         name="Holdings"
         component={HoldingsStack}
-        options={{ title: 'Holdings', headerShown: false }}
+        options={{
+          title: 'Holdings',
+          headerShown: false,
+          tabBarIcon: tabIcons.Holdings,
+        }}
       />
-      <Tab.Screen name="Alerts" component={AlertsScreen} options={{ title: 'Alerts' }} />
+      <Tab.Screen
+        name="Alerts"
+        component={AlertsScreen}
+        options={{
+          title: 'Alerts',
+          tabBarIcon: tabIcons.Alerts,
+        }}
+      />
       <Tab.Screen
         name="Insights"
         component={AnalysisScreen}
-        options={{ title: 'Insights' }}
+        options={{
+          title: 'Insights',
+          tabBarIcon: tabIcons.Insights,
+        }}
       />
     </Tab.Navigator>
   );

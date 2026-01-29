@@ -12,13 +12,25 @@ import { usePortfolio } from './usePortfolio';
 import { holdingsWithValues, formatHoldingValueDisplay, type HoldingWithValue } from './portfolioUtils';
 import { theme } from '../../utils/theme';
 
+/** Filter pill labels and types they include. */
+const FILTER_PILLS: { label: string; types: string[] }[] = [
+  { label: 'All', types: [] },
+  { label: 'Stocks', types: ['stock', 'etf'] },
+  { label: 'Crypto', types: ['crypto'] },
+  { label: 'Fixed Income', types: ['fixed_income'] },
+  { label: 'Real Estate', types: ['real_estate'] },
+  { label: 'Cash', types: ['cash'] },
+  { label: 'Other', types: ['other', 'metal'] },
+];
+
 /**
- * Holdings list: name, asset class badge, value, weight %. Filter by asset class, sort by value desc. Tap -> detail.
+ * Holdings list: name, asset class badge, value, weight %. Filter pills. Tap row -> detail. Floating + Add.
+ * Purpose: "Edit and manage everything I own."
  */
 export function HoldingsScreen() {
   const navigation = useNavigation();
   const { portfolio, holdings, pricesBySymbol, loading, refresh } = usePortfolio();
-  const [filterClass, setFilterClass] = useState<string | null>(null);
+  const [filterIndex, setFilterIndex] = useState(0);
 
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const withValues = useMemo(
@@ -27,14 +39,10 @@ export function HoldingsScreen() {
   );
 
   const filtered = useMemo(() => {
-    if (filterClass == null) return withValues;
-    return withValues.filter((x) => x.holding.type === filterClass);
-  }, [withValues, filterClass]);
-
-  const assetClasses = useMemo(() => {
-    const set = new Set(holdings.map((h) => h.type));
-    return Array.from(set).sort();
-  }, [holdings]);
+    const pill = FILTER_PILLS[filterIndex];
+    if (pill.types.length === 0) return withValues;
+    return withValues.filter((x) => pill.types.includes(x.holding.type));
+  }, [withValues, filterIndex]);
 
   const handlePress = (item: HoldingWithValue) => {
     (navigation as { navigate: (s: string, p: object) => void }).navigate('HoldingDetail', {
@@ -88,29 +96,19 @@ export function HoldingsScreen() {
 
   return (
     <View style={styles.container}>
-      {assetClasses.length > 1 && (
-        <View style={styles.filters}>
+      <View style={styles.filters}>
+        {FILTER_PILLS.map((pill, i) => (
           <TouchableOpacity
-            style={[styles.filterChip, filterClass === null && styles.filterChipActive]}
-            onPress={() => setFilterClass(null)}
+            key={pill.label}
+            style={[styles.filterChip, filterIndex === i && styles.filterChipActive]}
+            onPress={() => setFilterIndex(i)}
           >
-            <Text style={filterClass === null ? styles.filterChipTextActive : styles.filterChipText}>
-              All
+            <Text style={filterIndex === i ? styles.filterChipTextActive : styles.filterChipText}>
+              {pill.label}
             </Text>
           </TouchableOpacity>
-          {assetClasses.map((ac) => (
-            <TouchableOpacity
-              key={ac}
-              style={[styles.filterChip, filterClass === ac && styles.filterChipActive]}
-              onPress={() => setFilterClass(ac)}
-            >
-              <Text style={filterClass === ac ? styles.filterChipTextActive : styles.filterChipText}>
-                {ac.replace(/_/g, ' ')}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+        ))}
+      </View>
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.holding.id}
@@ -120,6 +118,13 @@ export function HoldingsScreen() {
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
         }
       />
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => (navigation as { navigate: (s: string) => void }).navigate('AddAsset')}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.fabText}>+ Add</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -128,7 +133,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   listContent: {
     padding: theme.layout.screenPadding,
-    paddingBottom: theme.spacing.lg,
+    paddingBottom: theme.spacing.xxl + theme.layout.screenPadding,
   },
   filters: {
     flexDirection: 'row',
@@ -220,6 +225,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
   },
   primaryButtonText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.background,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: theme.spacing.lg,
+    right: theme.layout.screenPadding,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.layout.cardRadius,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  fabText: {
     ...theme.typography.bodyMedium,
     color: theme.colors.background,
   },
