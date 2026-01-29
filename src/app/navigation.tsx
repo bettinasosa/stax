@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { OverviewScreen } from '../features/portfolio/OverviewScreen';
@@ -6,9 +7,11 @@ import { HoldingsScreen } from '../features/portfolio/HoldingsScreen';
 import { AddAssetScreen } from '../features/asset/AddAssetScreen';
 import { HoldingDetailScreen } from '../features/asset/HoldingDetailScreen';
 import { AddEventScreen } from '../features/asset/AddEventScreen';
+import { AlertsScreen } from '../features/alerts/AlertsScreen';
 import { AnalysisScreen } from '../features/analysis/AnalysisScreen';
-import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { theme } from '../utils/theme';
+import { ProfileHeaderButton } from './ProfileHeaderButton';
+import { AddAssetHeaderButton } from './AddAssetHeaderButton';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -22,11 +25,25 @@ const screenOptions = {
 
 function HoldingsStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: true, ...screenOptions }}>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: true,
+        ...screenOptions,
+        headerRight: () => <ProfileHeaderButton />,
+      }}
+    >
       <Stack.Screen
         name="HoldingsList"
         component={HoldingsScreen}
-        options={{ title: 'Holdings' }}
+        options={{
+          title: 'Holdings',
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <AddAssetHeaderButton />
+              <ProfileHeaderButton />
+            </View>
+          ),
+        }}
       />
       <Stack.Screen
         name="HoldingDetail"
@@ -34,12 +51,14 @@ function HoldingsStack() {
         options={{ title: 'Holding' }}
       />
       <Stack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Add event' }} />
+      <Stack.Screen name="AddAsset" component={AddAssetScreen} options={{ title: 'Add Asset' }} />
     </Stack.Navigator>
   );
 }
 
 /**
- * Root app navigation: bottom tabs (Overview, Holdings, Add, Analysis, Settings).
+ * Main tab navigator: Overview, Holdings, Alerts, Insights.
+ * Settings is reached via profile icon in header (see RootNavigator).
  */
 export function AppNavigation() {
   return (
@@ -47,6 +66,7 @@ export function AppNavigation() {
       screenOptions={{
         headerShown: true,
         ...screenOptions,
+        headerRight: () => <ProfileHeaderButton />,
         tabBarStyle: {
           backgroundColor: theme.colors.background,
           borderTopColor: theme.colors.border,
@@ -62,9 +82,12 @@ export function AppNavigation() {
         component={HoldingsStack}
         options={{ title: 'Holdings', headerShown: false }}
       />
-      <Tab.Screen name="Add" component={AddAssetScreen} options={{ title: 'Add Asset' }} />
-      <Tab.Screen name="Analysis" component={AnalysisScreen} options={{ title: 'Analysis' }} />
-      <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+      <Tab.Screen name="Alerts" component={AlertsScreen} options={{ title: 'Alerts' }} />
+      <Tab.Screen
+        name="Insights"
+        component={AnalysisScreen}
+        options={{ title: 'Insights' }}
+      />
     </Tab.Navigator>
   );
 }

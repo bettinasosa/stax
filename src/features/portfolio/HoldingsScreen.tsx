@@ -78,7 +78,7 @@ export function HoldingsScreen() {
         </Text>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Add')}
+          onPress={() => (navigation as { navigate: (s: string) => void }).navigate('AddAsset')}
         >
           <Text style={styles.primaryButtonText}>Add asset</Text>
         </TouchableOpacity>

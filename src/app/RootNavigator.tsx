@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { SignUpScreen } from '../features/auth/SignUpScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
+import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { AppNavigation } from './navigation';
 import { theme } from '../utils/theme';
 
@@ -64,7 +65,25 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer>
-      <AppNavigation />
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: theme.colors.background },
+          headerTintColor: theme.colors.textPrimary,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: theme.colors.background },
+        }}
+      >
+        <Stack.Screen
+          name="Main"
+          component={AppNavigation}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{ title: 'Settings' }}
+        />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }
