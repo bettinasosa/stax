@@ -72,7 +72,16 @@ export function HoldingsScreen() {
   if (holdings.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>No holdings. Add an asset to get started.</Text>
+        <Text style={styles.emptyTitle}>No holdings yet</Text>
+        <Text style={styles.emptyText}>
+          Add your first asset to see your portfolio.
+        </Text>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Add')}
+        >
+          <Text style={styles.primaryButtonText}>Add asset</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -189,9 +198,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacing.lg,
+    backgroundColor: theme.colors.background,
+  },
+  emptyTitle: {
+    ...theme.typography.title2,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+    textAlign: 'center',
   },
   emptyText: {
     ...theme.typography.body,
     color: theme.colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  primaryButton: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.layout.cardRadius,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+  },
+  primaryButtonText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.background,
   },
 });
