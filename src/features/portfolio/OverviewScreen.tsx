@@ -215,21 +215,26 @@ export function OverviewScreen() {
           <Text style={styles.chartLabel}>Last 7 days</Text>
           <LineChart
             data={performanceChartData}
-            width={screenWidth - theme.layout.screenPadding * 2}
+            width={screenWidth}
             height={200}
             chartConfig={{
               backgroundColor: 'transparent',
               backgroundGradientFrom: 'transparent',
               backgroundGradientTo: 'transparent',
               decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.9})`,
+              color: () => theme.colors.white,
+              strokeWidth: 4,
+              linejoinType: 'round',
               labelColor: () => theme.colors.textSecondary,
               propsForDots: { r: 0 },
               propsForLabels: { fontSize: 10 },
             }}
             bezier
+            withShadow={false}
             withInnerLines={false}
-            withOuterLines={true}
+            withOuterLines={false}
+            withVerticalLabels={false}
+            withHorizontalLabels={false}
             fromZero={false}
             style={styles.lineChart}
           />
@@ -362,13 +367,17 @@ const styles = StyleSheet.create({
   changePct: {
     ...theme.typography.body,
   },
-  chartSection: { marginBottom: theme.spacing.sm },
+  chartSection: {
+    marginBottom: theme.spacing.sm,
+    marginHorizontal: -theme.layout.screenPadding,
+  },
   chartLabel: {
     ...theme.typography.caption,
     color: theme.colors.textSecondary,
     marginBottom: theme.spacing.xs,
+    paddingHorizontal: theme.layout.screenPadding,
   },
-  lineChart: { borderRadius: theme.radius.sm },
+  lineChart: { borderRadius: 0, paddingRight: 0, paddingLeft: 0 },
   section: { marginBottom: theme.spacing.sm },
   sectionHeader: {
     flexDirection: 'row',
