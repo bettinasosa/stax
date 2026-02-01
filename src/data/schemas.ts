@@ -37,9 +37,9 @@ export const holdingSchema = z
     name: z.string().min(1),
     symbol: z.string().optional(),
     quantity: z.number().nonnegative().optional(),
-    costBasis: z.number().nonnegative().optional(),
-    costBasisCurrency: z.string().length(3).optional(),
-    manualValue: z.number().nonnegative().optional(),
+    costBasis: z.number().nonnegative().nullish(),
+    costBasisCurrency: z.string().length(3).nullish(),
+    manualValue: z.number().nonnegative().nullish(),
     currency: z.string().min(1),
     metadata: holdingMetadataSchema,
   })
@@ -47,7 +47,7 @@ export const holdingSchema = z
 
 export type Holding = z.infer<typeof holdingSchema>;
 
-/** PricePoint entity schema. */
+/** PricePoint entity schema. Optional quote fields for stocks (previous close, daily change %). */
 export const pricePointSchema = z
   .object({
     symbol: z.string().min(1),
@@ -55,6 +55,8 @@ export const pricePointSchema = z
     price: z.number().positive(),
     currency: z.string().length(3),
     source: z.string().min(1),
+    previousClose: z.number().nullish(),
+    changePercent: z.number().nullish(),
   })
   .strict();
 

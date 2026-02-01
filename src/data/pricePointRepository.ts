@@ -9,7 +9,7 @@ export async function getLatestBySymbol(
   symbol: string
 ): Promise<PricePoint | null> {
   const row = await db.getFirstAsync<Record<string, unknown>>(
-    `SELECT symbol, timestamp, price, currency, source
+    `SELECT symbol, timestamp, price, currency, source, previous_close as previousClose, change_percent as changePercent
      FROM price_point WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1`,
     [symbol]
   );
@@ -27,7 +27,7 @@ export async function getLatestBySymbols(
   if (symbols.length === 0) return result;
   const placeholders = symbols.map(() => '?').join(',');
   const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT symbol, timestamp, price, currency, source FROM price_point p
+    `SELECT symbol, timestamp, price, currency, source, previous_close as previousClose, change_percent as changePercent FROM price_point p
      WHERE p.symbol IN (${placeholders})
      AND p.timestamp = (SELECT MAX(timestamp) FROM price_point WHERE symbol = p.symbol)`,
     symbols
@@ -47,13 +47,15 @@ export async function upsert(
   point: PricePoint
 ): Promise<void> {
   await db.runAsync(
-    `INSERT OR REPLACE INTO price_point (symbol, timestamp, price, currency, source) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO price_point (symbol, timestamp, price, currency, source, previous_close, change_percent) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       point.symbol,
       point.timestamp,
       point.price,
       point.currency,
       point.source,
+      point.previousClose ?? null,
+      point.changePercent ?? null,
     ]
   );
 }

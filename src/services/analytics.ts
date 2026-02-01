@@ -6,6 +6,9 @@
 export type AnalyticsEvent =
   | { name: 'onboarding_completed' }
   | { name: 'holding_added'; type: string; priced: boolean }
+  | { name: 'wallet_import_started' }
+  | { name: 'wallet_import_completed'; count: number }
+  | { name: 'wallet_import_failed'; reason: string }
   | { name: 'paywall_viewed'; trigger: string }
   | { name: 'trial_started' }
   | { name: 'purchase_completed' }
@@ -26,6 +29,18 @@ export function trackOnboardingCompleted(): void {
 
 export function trackHoldingAdded(type: string, priced: boolean): void {
   logEvent({ name: 'holding_added', type, priced });
+}
+
+export function trackWalletImportStarted(): void {
+  logEvent({ name: 'wallet_import_started' });
+}
+
+export function trackWalletImportCompleted(count: number): void {
+  logEvent({ name: 'wallet_import_completed', count });
+}
+
+export function trackWalletImportFailed(reason: string): void {
+  logEvent({ name: 'wallet_import_failed', reason });
 }
 
 export function trackPaywallViewed(trigger: string): void {

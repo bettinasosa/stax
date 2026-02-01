@@ -58,7 +58,13 @@ export function usePortfolio() {
       const priceMap = await pricePointRepo.getLatestBySymbols(db, symbols);
       const resultMap = new Map<string, PriceResult>();
       for (const [sym, pp] of priceMap) {
-        resultMap.set(sym, { price: pp.price, currency: pp.currency, symbol: pp.symbol });
+        resultMap.set(sym, {
+          price: pp.price,
+          currency: pp.currency,
+          symbol: pp.symbol,
+          ...(pp.previousClose != null && { previousClose: pp.previousClose }),
+          ...(pp.changePercent != null && { changePercent: pp.changePercent }),
+        });
       }
       setPricesBySymbol(resultMap);
     } catch (e) {

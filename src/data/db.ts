@@ -39,6 +39,8 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_price_point_symbol ON price_point(symbol);
   `,
+  `ALTER TABLE price_point ADD COLUMN previous_close REAL;`,
+  `ALTER TABLE price_point ADD COLUMN change_percent REAL;`,
   `
   CREATE TABLE IF NOT EXISTS event (
     id TEXT PRIMARY KEY NOT NULL,
@@ -60,12 +62,31 @@ export const DEFAULT_PORTFOLIO_ID = '00000000-0000-4000-8000-000000000001';
 const LEGACY_PORTFOLIO_ID = '00000000-0000-0000-0000-000000000001';
 
 /**
+ * Delete all user data (events, holdings, price points). Keeps the default portfolio so the app can start fresh.
+ */
+export async function clearAllData(db: SQLiteDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM event');
+  await db.runAsync('DELETE FROM holding');
+  await db.runAsync('DELETE FROM price_point');
+}
+
+/**
  * Run all migrations and seed default portfolio if empty.
  * Fixes legacy DB that used an invalid UUID for the default portfolio.
  */
 export async function initDb(db: SQLiteDatabase): Promise<void> {
   for (const sql of MIGRATIONS) {
-    await db.execAsync(sql);
+    const isAlter = sql.trim().startsWith('ALTER TABLE');
+    if (isAlter) {
+      try {
+        await db.runAsync(sql);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes('duplicate column name')) throw e;
+      }
+    } else {
+      await db.execAsync(sql);
+    }
   }
   const row = await db.getFirstAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM portfolio'

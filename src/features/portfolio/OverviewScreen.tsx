@@ -8,7 +8,7 @@ import {
   Dimensions,
   TouchableOpacity,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { PieChart } from 'react-native-chart-kit';
 import { usePortfolio } from './usePortfolio';
@@ -49,6 +49,12 @@ export function OverviewScreen() {
   const allocation = allocationByAssetClass(withValues);
   const top3 = withValues.slice(0, 3);
   const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
 
   const loadUpcoming = useCallback(async () => {
     const portfolioHoldings = await holdingRepo.getByPortfolioId(db, DEFAULT_PORTFOLIO_ID);

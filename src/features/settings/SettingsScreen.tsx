@@ -9,8 +9,9 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { portfolioRepo, holdingRepo, eventRepo } from '../../data';
+import { portfolioRepo, holdingRepo, eventRepo, clearAllData } from '../../data';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEntitlements } from '../analysis/useEntitlements';
 import {
@@ -28,6 +29,7 @@ import { theme } from '../../utils/theme';
  */
 export function SettingsScreen() {
   const db = useSQLiteContext();
+  const navigation = useNavigation();
   const { restorePurchases } = useEntitlements();
   const [baseCurrency, setBaseCurrency] = useState('USD');
   const [loading, setLoading] = useState(true);
@@ -41,6 +43,7 @@ export function SettingsScreen() {
     eventsCount: number;
   } | null>(null);
   const [dbRaw, setDbRaw] = useState<{ portfolio: unknown[]; holding: unknown[]; event: unknown[] } | null>(null);
+  const [clearing, setClearing] = useState(false);
   const { signOut } = useAuth();
 
   useEffect(() => {
@@ -98,6 +101,35 @@ export function SettingsScreen() {
     }
   };
 
+  const handleClearAllData = () => {
+    Alert.alert(
+      'Start from scratch',
+      'This will delete all holdings, events, and price data. Your portfolio will be empty. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete all data',
+          style: 'destructive',
+          onPress: async () => {
+            setClearing(true);
+            try {
+              await clearAllData(db);
+              setDbSummary(null);
+              setDbRaw(null);
+              Alert.alert('Done', 'Your data has been deleted. You can start fresh.', [
+                { text: 'OK', onPress: () => navigation.goBack() },
+              ]);
+            } catch {
+              Alert.alert('Error', 'Failed to delete data.');
+            } finally {
+              setClearing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSaveBaseCurrency = async () => {
     const cur = editCurrency.trim().toUpperCase();
     if (cur.length !== 3) {
@@ -134,6 +166,17 @@ export function SettingsScreen() {
           <Text style={styles.mutedSmall}>
             Data is stored on this device. {isSupabaseConfigured() ? 'Sign out below if you use an account.' : 'No account required for local use.'}
           </Text>
+          <TouchableOpacity
+            style={[styles.buttonDanger, styles.buttonDangerTop, clearing && styles.buttonDisabled]}
+            onPress={handleClearAllData}
+            disabled={clearing}
+          >
+            {clearing ? (
+              <ActivityIndicator size="small" color={theme.colors.negative} />
+            ) : (
+              <Text style={styles.buttonDangerText}>Delete all data & start from scratch</Text>
+            )}
+          </TouchableOpacity>
         </View>
       )}
       <View style={styles.section}>
@@ -343,6 +386,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: theme.colors.negative,
+  },
+  buttonDangerTop: {
+    marginTop: theme.spacing.sm,
   },
   buttonDangerText: {
     color: theme.colors.negative,

@@ -174,6 +174,17 @@ export function HoldingDetailScreen() {
       <View style={styles.card}>
         <Text style={styles.value}>{formatMoney(valueBase, baseCurrency)}</Text>
         <Text style={styles.weight}>{weightPercent.toFixed(1)}% of portfolio</Text>
+        {holding.symbol && (() => {
+          const pr = pricesBySymbol.get(holding.symbol);
+          const pct = pr?.changePercent;
+          if (pct == null || pct === 0) return null;
+          const isPositive = pct > 0;
+          return (
+            <Text style={[styles.dailyChange, isPositive ? styles.dailyChangeUp : styles.dailyChangeDown]}>
+              Day: {isPositive ? '+' : ''}{pct.toFixed(2)}%
+            </Text>
+          );
+        })()}
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{holding.type.replace(/_/g, ' ')}</Text>
         </View>
@@ -314,6 +325,12 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginBottom: theme.spacing.xs,
   },
+  dailyChange: {
+    ...theme.typography.caption,
+    marginBottom: theme.spacing.xs,
+  },
+  dailyChangeUp: { color: theme.colors.positive },
+  dailyChangeDown: { color: theme.colors.negative },
   badge: {
     alignSelf: 'flex-start',
     backgroundColor: theme.colors.border,

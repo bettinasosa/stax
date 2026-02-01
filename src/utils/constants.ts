@@ -2,19 +2,9 @@
  * App-wide constants and enums.
  */
 
-export const ASSET_TYPE_LISTED = [
-  'stock',
-  'etf',
-  'crypto',
-  'metal',
-] as const;
+export const ASSET_TYPE_LISTED = ['stock', 'etf', 'crypto', 'metal'] as const;
 
-export const ASSET_TYPE_NON_LISTED = [
-  'fixed_income',
-  'real_estate',
-  'cash',
-  'other',
-] as const;
+export const ASSET_TYPE_NON_LISTED = ['fixed_income', 'real_estate', 'cash', 'other'] as const;
 
 export const ASSET_TYPES = [...ASSET_TYPE_LISTED, ...ASSET_TYPE_NON_LISTED] as const;
 
@@ -32,7 +22,9 @@ export const EVENT_KINDS = [
 
 export type EventKind = (typeof EVENT_KINDS)[number];
 
-export const FREE_HOLDINGS_LIMIT = 15;
+/** Free-tier limit. Set high (e.g. 9999) for local testing to add unlimited holdings. */
+// TODO: change back to 15 for production
+export const FREE_HOLDINGS_LIMIT = 9999;
 export const FREE_REMINDER_SCHEDULES_LIMIT = 1;
 export const DEFAULT_REMIND_DAYS_BEFORE = 3;
 export const STAX_SCORE_TOP_HOLDING_THRESHOLD = 25;

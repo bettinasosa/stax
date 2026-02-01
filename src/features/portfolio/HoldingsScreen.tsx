@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,11 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSQLiteContext } from 'expo-sqlite';
+import { holdingRepo } from '../../data';
 import { usePortfolio } from './usePortfolio';
 import { holdingsWithValues, formatHoldingValueDisplay, type HoldingWithValue } from './portfolioUtils';
 import { theme } from '../../utils/theme';
@@ -29,8 +32,15 @@ const FILTER_PILLS: { label: string; types: string[] }[] = [
  */
 export function HoldingsScreen() {
   const navigation = useNavigation();
+  const db = useSQLiteContext();
   const { portfolio, holdings, pricesBySymbol, loading, refresh } = usePortfolio();
   const [filterIndex, setFilterIndex] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
 
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const withValues = useMemo(
@@ -50,31 +60,71 @@ export function HoldingsScreen() {
     });
   };
 
+  const handleDelete = (item: HoldingWithValue) => {
+    Alert.alert(
+      'Remove holding',
+      `Remove "${item.holding.name}" from your portfolio?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            await holdingRepo.remove(db, item.holding.id);
+            refresh();
+          },
+        },
+      ]
+    );
+  };
+
   const renderItem = ({ item }: { item: HoldingWithValue }) => (
-    <TouchableOpacity
-      style={styles.row}
-      onPress={() => handlePress(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.rowLeft}>
-        <Text style={styles.name} numberOfLines={1}>
-          {item.holding.name}
-        </Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{item.holding.type.replace(/_/g, ' ')}</Text>
+    <View style={styles.rowWrapper}>
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => handlePress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.rowLeft}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.holding.name}
+          </Text>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{item.holding.type.replace(/_/g, ' ')}</Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.rowRight}>
-        <Text style={styles.value}>
-          {formatHoldingValueDisplay(
-            item.holding,
-            item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
-            baseCurrency
-          )}
-        </Text>
-        <Text style={styles.weight}>{item.weightPercent.toFixed(1)}%</Text>
-      </View>
-    </TouchableOpacity>
+        <View style={styles.rowRight}>
+          <View>
+            <Text style={styles.value}>
+              {formatHoldingValueDisplay(
+                item.holding,
+                item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
+                baseCurrency
+              )}
+            </Text>
+            {item.holding.symbol && (() => {
+              const pr = pricesBySymbol.get(item.holding.symbol!);
+              const pct = pr?.changePercent;
+              if (pct == null || pct === 0) return null;
+              const isPositive = pct > 0;
+              return (
+                <Text style={[styles.dailyChange, isPositive ? styles.dailyChangeUp : styles.dailyChangeDown]}>
+                  {isPositive ? '+' : ''}{pct.toFixed(2)}%
+                </Text>
+              );
+            })()}
+          </View>
+          <Text style={styles.weight}>{item.weightPercent.toFixed(1)}%</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={() => handleDelete(item)}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      >
+        <Text style={styles.deleteBtnText}>Remove</Text>
+      </TouchableOpacity>
+    </View>
   );
 
   if (holdings.length === 0) {
@@ -161,6 +211,9 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     color: theme.colors.background,
   },
+  rowWrapper: {
+    marginBottom: theme.spacing.xs,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -168,10 +221,19 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     padding: theme.layout.screenPadding,
     borderRadius: theme.radius.sm,
-    marginBottom: theme.spacing.xs,
     minHeight: theme.layout.rowHeight,
   },
   rowLeft: { flex: 1 },
+  deleteBtn: {
+    alignSelf: 'flex-end',
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    marginTop: 2,
+  },
+  deleteBtnText: {
+    ...theme.typography.small,
+    color: theme.colors.negative,
+  },
   name: {
     ...theme.typography.bodyMedium,
     color: theme.colors.textPrimary,
@@ -193,6 +255,12 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySemi,
     color: theme.colors.textPrimary,
   },
+  dailyChange: {
+    ...theme.typography.small,
+    marginTop: 2,
+  },
+  dailyChangeUp: { color: theme.colors.positive },
+  dailyChangeDown: { color: theme.colors.negative },
   weight: {
     ...theme.typography.small,
     color: theme.colors.textTertiary,
