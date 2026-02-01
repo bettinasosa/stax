@@ -18,25 +18,27 @@ export const portfolioSchema = z
 
 export type Portfolio = z.infer<typeof portfolioSchema>;
 
-/** Holding metadata (country, sector, provider ids). */
+/** Holding metadata (country, sector, provider ids, token contract data). */
 export const holdingMetadataSchema = z
   .object({
     country: z.string().optional(),
     sector: z.string().optional(),
     providerId: z.string().optional(),
+    contractAddress: z.string().optional(),
+    network: z.string().optional(),
   })
   .strict()
   .optional();
 
-/** Holding entity schema. */
+/** Holding entity schema. symbol/quantity null when coming from DB for non-listed assets. */
 export const holdingSchema = z
   .object({
     id: z.string().uuid(),
     portfolioId: z.string().uuid(),
     type: z.enum(ASSET_TYPES as unknown as [AssetType, ...AssetType[]]),
     name: z.string().min(1),
-    symbol: z.string().optional(),
-    quantity: z.number().nonnegative().optional(),
+    symbol: z.string().nullish(),
+    quantity: z.number().nonnegative().nullish(),
     costBasis: z.number().nonnegative().nullish(),
     costBasisCurrency: z.string().length(3).nullish(),
     manualValue: z.number().nonnegative().nullish(),
@@ -61,6 +63,19 @@ export const pricePointSchema = z
   .strict();
 
 export type PricePoint = z.infer<typeof pricePointSchema>;
+
+/** Portfolio value snapshot for historical chart (one per refresh). */
+export const portfolioValueSnapshotSchema = z
+  .object({
+    id: z.string().uuid(),
+    portfolioId: z.string().uuid(),
+    timestamp: z.string().datetime(),
+    valueBase: z.number().nonnegative(),
+    baseCurrency: z.string().length(3),
+  })
+  .strict();
+
+export type PortfolioValueSnapshot = z.infer<typeof portfolioValueSnapshotSchema>;
 
 /** Event entity schema. */
 export const eventSchema = z
@@ -131,3 +146,37 @@ export type UpdateHoldingInput = z.infer<typeof updateHoldingSchema>;
 export const updateEventSchema = eventSchema.partial().omit({ id: true, holdingId: true });
 
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
+
+/** Lot source: transfer/airdrop/deposit (no buy on-chain), swap (DEX), or manual. */
+export const LOT_SOURCES = ['transfer', 'swap', 'manual'] as const;
+export type LotSource = (typeof LOT_SOURCES)[number];
+
+/**
+ * Lot schema: one acquisition of an asset (supports average cost, FIFO, performance).
+ * assetId = chainId:contractAddress (native uses contractAddress null, stored as "chainId:").
+ * costBasisUsdPerUnit is derived as costBasisUsdTotal / qtyIn when costBasisUsdTotal is set.
+ */
+export const lotSchema = z
+  .object({
+    id: z.string().uuid(),
+    holdingId: z.string().uuid(),
+    assetId: z.string().min(1),
+    timestamp: z.string().datetime(),
+    qtyIn: z.number().positive(),
+    costBasisUsdTotal: z.number().nonnegative().nullish(),
+    source: z.enum(LOT_SOURCES),
+  })
+  .strict();
+
+export type Lot = z.infer<typeof lotSchema>;
+
+/** Create lot DTO. */
+export const createLotSchema = lotSchema.omit({ id: true });
+
+export type CreateLotInput = z.infer<typeof createLotSchema>;
+
+/** Build assetId from chainId and contract address (null/empty for native). */
+export function buildAssetId(chainId: number, contractAddress: string | null | undefined): string {
+  const addr = contractAddress?.trim().toLowerCase();
+  return addr ? `${chainId}:${addr}` : `${chainId}:`;
+}

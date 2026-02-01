@@ -11,10 +11,10 @@ import {
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { holdingRepo, eventRepo } from '../../data';
+import { holdingRepo, eventRepo, lotRepo } from '../../data';
 import { updateHoldingSchema } from '../../data/schemas';
 import { cancelEventNotification } from '../../services/notifications';
-import type { Holding, Event } from '../../data/schemas';
+import type { Holding, Event, Lot } from '../../data/schemas';
 import { formatMoney } from '../../utils/money';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingValueInBase } from '../portfolio/portfolioUtils';
@@ -35,6 +35,7 @@ export function HoldingDetailScreen() {
   const { portfolio, pricesBySymbol, totalBase, refresh } = usePortfolio();
   const [holding, setHolding] = useState<Holding | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
+  const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -52,8 +53,12 @@ export function HoldingDetailScreen() {
       setEditManualValue(h.manualValue != null ? String(h.manualValue) : '');
       setEditCurrency(h.currency);
     }
-    const e = await eventRepo.getByHoldingId(db, holdingId);
+    const [e, l] = await Promise.all([
+      eventRepo.getByHoldingId(db, holdingId),
+      lotRepo.getByHoldingId(db, holdingId),
+    ]);
     setEvents(e);
+    setLots(l);
     setLoading(false);
   }, [db, holdingId]);
 
@@ -120,6 +125,7 @@ export function HoldingDetailScreen() {
             await eventRepo.getByHoldingId(db, holdingId).then((evs) => {
               return Promise.all(evs.map((e) => eventRepo.remove(db, e.id)));
             });
+            await lotRepo.deleteByHoldingId(db, holdingId);
             await holdingRepo.remove(db, holdingId);
             refresh();
             (navigation as { goBack: () => void }).goBack();
@@ -188,6 +194,23 @@ export function HoldingDetailScreen() {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{holding.type.replace(/_/g, ' ')}</Text>
         </View>
+        {lots.length > 0 && (() => {
+          const agg = lotRepo.aggregateLotsCost(lots);
+          const hasUnpriced = lots.some((l) => l.costBasisUsdTotal == null);
+          if (hasUnpriced) {
+            return (
+              <Text style={styles.muted}>Price unavailable for some lots. Set manually.</Text>
+            );
+          }
+          if (agg) {
+            return (
+              <Text style={styles.muted}>
+                Cost basis: {formatMoney(agg.totalCostUsd, 'USD')} ({lots.length} lots)
+              </Text>
+            );
+          }
+          return null;
+        })()}
       </View>
 
       <View style={styles.section}>

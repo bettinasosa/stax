@@ -71,3 +71,53 @@ export async function getCoinGeckoId(symbol: string): Promise<string | null> {
   const map = await getSymbolToIdMap();
   return map.get(sym) ?? null;
 }
+
+/** [timestamp_ms, price_usd] from market_chart/range. */
+export interface HistoricalPricePoint {
+  timestampMs: number;
+  priceUsd: number;
+}
+
+/**
+ * Fetches historical prices for a token by contract address in a time range.
+ * Uses /coins/{platform}/contract/{contract_address}/market_chart/range.
+ * Returns array of [timestamp_ms, price_usd]; empty if not found or error.
+ */
+export async function fetchHistoricalPricesByContract(
+  platform: string,
+  contractAddress: string,
+  fromTimestamp: number,
+  toTimestamp: number
+): Promise<HistoricalPricePoint[]> {
+  const { baseUrl, apiKey } = getCoinGeckoConfig();
+  const platformId = (platform || 'ethereum').trim().toLowerCase();
+  const contract = contractAddress.trim().toLowerCase();
+  const url = `${baseUrl}/coins/${platformId}/contract/${contract}/market_chart/range?vs_currency=usd&from=${fromTimestamp}&to=${toTimestamp}`;
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as {
+    prices?: [number, number][];
+  };
+  const raw = data.prices ?? [];
+  return raw.map(([ts, price]) => ({ timestampMs: ts, priceUsd: price }));
+}
+
+/**
+ * Find nearest price at or before timestamp from a sorted list of points.
+ */
+export function nearestPriceAtOrBefore(
+  points: HistoricalPricePoint[],
+  timestampMs: number
+): number | null {
+  if (points.length === 0) return null;
+  let best: HistoricalPricePoint | null = null;
+  for (const p of points) {
+    if (p.timestampMs > timestampMs) break;
+    best = p;
+  }
+  return best?.priceUsd ?? null;
+}

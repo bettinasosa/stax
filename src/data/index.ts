@@ -4,3 +4,5 @@ export * as portfolioRepo from './portfolioRepository';
 export * as holdingRepo from './holdingRepository';
 export * as pricePointRepo from './pricePointRepository';
 export * as eventRepo from './eventRepository';
+export * as lotRepo from './lotRepository';
+export * as portfolioValueSnapshotRepo from './portfolioValueSnapshotRepository';

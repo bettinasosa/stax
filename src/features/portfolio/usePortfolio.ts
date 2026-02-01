@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
-import { portfolioRepo, holdingRepo, pricePointRepo } from '../../data';
+import { portfolioRepo, holdingRepo, pricePointRepo, portfolioValueSnapshotRepo } from '../../data';
 import type { Portfolio, Holding } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { refreshPrices } from '../../services/pricing';
@@ -17,8 +17,19 @@ export interface PortfolioState {
   error: string | null;
 }
 
+function pricePointToResult(pp: { price: number; currency: string; symbol: string; previousClose?: number | null; changePercent?: number | null }): PriceResult | null {
+  if (typeof pp.price !== 'number' || !Number.isFinite(pp.price) || pp.price <= 0) return null;
+  return {
+    price: pp.price,
+    currency: pp.currency,
+    symbol: pp.symbol,
+    ...(pp.previousClose != null && { previousClose: pp.previousClose }),
+    ...(pp.changePercent != null && { changePercent: pp.changePercent }),
+  };
+}
+
 /**
- * Load default portfolio, its holdings, and latest prices. Refreshes prices on pull.
+ * Load default portfolio, its holdings, and latest prices. Shows cached prices first, then refreshes in background so the UI stays stable.
  */
 export function usePortfolio() {
   const db = useSQLiteContext();
@@ -37,6 +48,7 @@ export function usePortfolio() {
         setPortfolio(null);
         setHoldings([]);
         setPricesBySymbol(new Map());
+        setLoading(false);
         return;
       }
       setPortfolio(p);
@@ -47,26 +59,48 @@ export function usePortfolio() {
         (x): x is Holding & { symbol: string; type: AssetTypeListed } =>
           x.symbol != null && ['stock', 'etf', 'crypto', 'metal'].includes(x.type)
       );
+      const symbols = Array.from(new Set(listed.map((x) => x.symbol)));
+
+      // Show cached prices immediately so UI doesn't flash or drop
+      const cachedMap = await pricePointRepo.getLatestBySymbols(db, symbols);
+      const cachedResult = new Map<string, PriceResult>();
+      Array.from(cachedMap.entries()).forEach(([sym, pp]) => {
+        const pr = pricePointToResult(pp);
+        if (pr) cachedResult.set(sym, pr);
+      });
+      setPricesBySymbol(cachedResult);
+      setLoading(false);
+
+      let snapshotMap = cachedResult;
       if (listed.length > 0) {
         await refreshPrices(
           db,
-          listed.map((x) => ({ symbol: x.symbol, type: x.type as AssetTypeListed }))
+          listed.map((x) => ({
+            symbol: x.symbol,
+            type: x.type as AssetTypeListed,
+            metadata: x.metadata ?? undefined,
+          }))
         );
-      }
-
-      const symbols = [...new Set(listed.map((x) => x.symbol))];
-      const priceMap = await pricePointRepo.getLatestBySymbols(db, symbols);
-      const resultMap = new Map<string, PriceResult>();
-      for (const [sym, pp] of priceMap) {
-        resultMap.set(sym, {
-          price: pp.price,
-          currency: pp.currency,
-          symbol: pp.symbol,
-          ...(pp.previousClose != null && { previousClose: pp.previousClose }),
-          ...(pp.changePercent != null && { changePercent: pp.changePercent }),
+        const priceMapAfter = await pricePointRepo.getLatestBySymbols(db, symbols);
+        const resultMap = new Map<string, PriceResult>();
+        Array.from(priceMapAfter.entries()).forEach(([sym, pp]) => {
+          const pr = pricePointToResult(pp);
+          if (pr) resultMap.set(sym, pr);
         });
+        setPricesBySymbol((prev) => {
+          const next = new Map(prev);
+          Array.from(resultMap.entries()).forEach(([sym, pr]) => next.set(sym, pr));
+          return next;
+        });
+        snapshotMap = resultMap;
       }
-      setPricesBySymbol(resultMap);
+      const totalBaseNow = portfolioTotalBase(h, snapshotMap, p.baseCurrency);
+      await portfolioValueSnapshotRepo.insert(db, {
+        portfolioId: p.id,
+        timestamp: new Date().toISOString(),
+        valueBase: totalBaseNow,
+        baseCurrency: p.baseCurrency,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load portfolio');
     } finally {

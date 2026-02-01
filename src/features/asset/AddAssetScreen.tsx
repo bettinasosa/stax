@@ -8,10 +8,12 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useNavigation } from '@react-navigation/native';
-import { holdingRepo, eventRepo } from '../../data';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { holdingRepo, eventRepo, lotRepo } from '../../data';
 import { scheduleEventNotification } from '../../services/notifications';
 import { useEntitlements } from '../analysis/useEntitlements';
 import {
@@ -26,10 +28,17 @@ import type { WalletHolding } from '../../services/ethplorer';
 import { searchSymbols, isFinnhubConfigured } from '../../services/finnhub';
 import type { FinnhubSearchResult } from '../../services/finnhub';
 import { FREE_HOLDINGS_LIMIT } from '../../utils/constants';
-import { createListedHoldingSchema, createNonListedHoldingSchema } from '../../data/schemas';
+import { createListedHoldingSchema, createNonListedHoldingSchema, buildAssetId } from '../../data/schemas';
 import { getLatestPrice } from '../../services/pricing';
-import { ASSET_TYPE_LISTED, ASSET_TYPE_NON_LISTED, EVENT_KINDS, DEFAULT_REMIND_DAYS_BEFORE } from '../../utils/constants';
-import type { AssetTypeListed, AssetTypeNonListed } from '../../utils/constants';
+import { buildLotsFromChain } from '../../services/costBasisFromChain';
+import {
+  ASSET_TYPE_LISTED,
+  ASSET_TYPE_NON_LISTED,
+  ASSET_TYPES,
+  EVENT_KINDS,
+  DEFAULT_REMIND_DAYS_BEFORE,
+} from '../../utils/constants';
+import type { AssetType, AssetTypeListed, AssetTypeNonListed } from '../../utils/constants';
 import type { EventKind } from '../../utils/constants';
 import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
 import { theme } from '../../utils/theme';
@@ -37,23 +46,130 @@ import { theme } from '../../utils/theme';
 type Flow = 'listed' | 'non_listed' | null;
 type ListedCryptoSubFlow = 'manual' | 'wallet_import' | null;
 
+/** Display order and labels for asset type buttons. */
+const ASSET_TYPE_BUTTONS: { type: AssetType; label: string }[] = [
+  { type: 'stock', label: 'Stock' },
+  { type: 'etf', label: 'ETF' },
+  { type: 'crypto', label: 'Crypto' },
+  { type: 'metal', label: 'Metal' },
+  { type: 'real_estate', label: 'Real Estate' },
+  { type: 'cash', label: 'Cash' },
+  { type: 'fixed_income', label: 'Fixed Income' },
+  { type: 'other', label: 'Other' },
+];
+
+const WALLET_SWIPE_ACTIVATION = 12;
+const WALLET_SWIPE_DELETE_THRESHOLD = 72;
+const WALLET_DELETE_WIDTH = 96;
+const WALLET_SWIPE_MAX = WALLET_DELETE_WIDTH + 24;
+const WALLET_QUANTITY_SMALL = 1e-6;
+const WALLET_FOOTER_HEIGHT = 72;
+
+function formatWalletQuantity(value: number): string {
+  return value < WALLET_QUANTITY_SMALL ? value.toExponential(2) : value.toLocaleString();
+}
+
+interface WalletHoldingRowProps {
+  holding: WalletHolding;
+  onRemove: (id: string) => void;
+}
+
+function WalletHoldingRow({ holding, onRemove }: WalletHoldingRowProps) {
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  const resetPosition = () => {
+    Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+  };
+
+  const removeRow = () => {
+    Animated.timing(translateX, {
+      toValue: -WALLET_SWIPE_MAX,
+      duration: 160,
+      useNativeDriver: true,
+    }).start(() => onRemove(holding.id));
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        Math.abs(gesture.dx) > WALLET_SWIPE_ACTIVATION &&
+        Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onPanResponderMove: (_, gesture) => {
+        if (gesture.dx > 0) return;
+        const next = Math.max(gesture.dx, -WALLET_SWIPE_MAX);
+        translateX.setValue(next);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx < -WALLET_SWIPE_DELETE_THRESHOLD) {
+          removeRow();
+        } else {
+          resetPosition();
+        }
+      },
+      onPanResponderTerminate: resetPosition,
+    })
+  ).current;
+
+  return (
+    <View style={styles.walletRowWrapper}>
+      <View style={styles.walletRowDelete}>
+        <Text style={styles.walletRowDeleteText}>Remove</Text>
+      </View>
+      <Animated.View
+        style={[styles.walletRow, { transform: [{ translateX }] }]}
+        {...panResponder.panHandlers}
+      >
+        <View style={styles.walletRowText}>
+          <Text style={styles.walletSymbol}>{holding.symbol}</Text>
+          {holding.name && holding.name !== holding.symbol ? (
+            <Text style={styles.walletName} numberOfLines={1}>
+              {holding.name}
+            </Text>
+          ) : null}
+        </View>
+        <Text style={styles.walletQuantity}>{formatWalletQuantity(holding.quantity)}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 /**
  * Add Asset: choose listed vs non-listed, then fill form and save.
  */
+type AddAssetRouteParams = { initialType?: AssetType };
+
 export function AddAssetScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
+  const route = useRoute();
+  const initialTypeParam = (route.params as AddAssetRouteParams | undefined)?.initialType;
   const { isPro } = useEntitlements();
-  const [flow, setFlow] = useState<Flow>(null);
+
+  const [flow, setFlow] = useState<Flow>(() => {
+    if (initialTypeParam && ASSET_TYPES.includes(initialTypeParam)) {
+      return ASSET_TYPE_LISTED.includes(initialTypeParam as AssetTypeListed) ? 'listed' : 'non_listed';
+    }
+    return null;
+  });
   const [saving, setSaving] = useState(false);
 
-  const [listedType, setListedType] = useState<AssetTypeListed>('stock');
+  const [listedType, setListedType] = useState<AssetTypeListed>(() => {
+    if (initialTypeParam && ASSET_TYPE_LISTED.includes(initialTypeParam as AssetTypeListed)) {
+      return initialTypeParam as AssetTypeListed;
+    }
+    return 'stock';
+  });
   const [symbol, setSymbol] = useState('');
   const [quantity, setQuantity] = useState('');
   const [costBasis, setCostBasis] = useState('');
   const [listedCurrency, setListedCurrency] = useState('USD');
 
-  const [nonListedType, setNonListedType] = useState<AssetTypeNonListed>('cash');
+  const [nonListedType, setNonListedType] = useState<AssetTypeNonListed>(() => {
+    if (initialTypeParam && ASSET_TYPE_NON_LISTED.includes(initialTypeParam as AssetTypeNonListed)) {
+      return initialTypeParam as AssetTypeNonListed;
+    }
+    return 'cash';
+  });
   const [name, setName] = useState('');
   const [manualValue, setManualValue] = useState('');
   const [nonListedCurrency, setNonListedCurrency] = useState('USD');
@@ -137,7 +253,7 @@ export function AddAssetScreen() {
     setSaving(true);
     try {
       await holdingRepo.createListed(db, parsed.data);
-      await getLatestPrice(db, parsed.data.symbol, listedType);
+      await getLatestPrice(db, parsed.data.symbol, listedType, parsed.data.metadata ?? undefined);
       trackHoldingAdded(listedType, true);
       navigation.goBack();
     } catch (e) {
@@ -173,6 +289,10 @@ export function AddAssetScreen() {
     } finally {
       setWalletLoading(false);
     }
+  };
+
+  const handleRemoveWalletHolding = (id: string) => {
+    setWalletHoldings((prev) => prev.filter((h) => h.id !== id));
   };
 
   const handleConfirmWalletImport = async () => {
@@ -212,31 +332,77 @@ export function AddAssetScreen() {
     }
     setWalletImporting(true);
     const failed: string[] = [];
+    const createdHoldings: { id: string; metadata?: { contractAddress?: string; network?: string } }[] = [];
     try {
       for (const h of toImport) {
+        const metadata = h.contractAddress
+          ? { contractAddress: h.contractAddress, network: 'ethereum' }
+          : undefined;
         const parsed = createListedHoldingSchema.safeParse({
           portfolioId: DEFAULT_PORTFOLIO_ID,
           type: 'crypto' as const,
-          name: h.symbol,
+          name: h.name || h.symbol,
           symbol: h.symbol,
           quantity: h.quantity,
           costBasis: undefined,
           costBasisCurrency: undefined,
           currency: 'USD',
+          metadata,
         });
         if (!parsed.success) {
           failed.push(h.symbol);
           continue;
         }
         try {
-          await holdingRepo.createListed(db, parsed.data);
-          await getLatestPrice(db, parsed.data.symbol, 'crypto');
+          const created = await holdingRepo.createListed(db, parsed.data);
+          createdHoldings.push({ id: created.id, metadata: created.metadata });
+          await getLatestPrice(db, parsed.data.symbol, 'crypto', parsed.data.metadata ?? undefined);
           trackHoldingAdded('crypto', true);
         } catch {
           failed.push(h.symbol);
         }
       }
       trackWalletImportCompleted(toImport.length - failed.length);
+
+      if (createdHoldings.length > 0 && walletAddress.trim()) {
+        const chainId = 1;
+        const holdingIdByAssetId = new Map<string, string>();
+        for (const { id, metadata } of createdHoldings) {
+          const assetId = buildAssetId(chainId, metadata?.contractAddress);
+          holdingIdByAssetId.set(assetId, id);
+        }
+        try {
+          const { lots, unpricedCount } = await buildLotsFromChain({
+            walletAddress: walletAddress.trim(),
+            chainId,
+            platform: 'ethereum',
+            holdingIdByAssetId,
+          });
+          if (lots.length > 0) {
+            await lotRepo.createMany(db, lots);
+            for (const hid of Array.from(new Set(lots.map((l) => l.holdingId)))) {
+              const holdingLots = await lotRepo.getByHoldingId(db, hid);
+              const agg = lotRepo.aggregateLotsCost(holdingLots);
+              if (agg) {
+                await holdingRepo.update(db, hid, {
+                  costBasis: Math.round(agg.costBasisUsdPerUnit * 1e8) / 1e8,
+                  costBasisCurrency: 'USD',
+                });
+              }
+            }
+            const unpricedMsg = unpricedCount > 0 ? ` ${unpricedCount} unpriced (set manually).` : '';
+            Alert.alert(
+              'Import completed',
+              `Cost basis: ${lots.length} lots.${unpricedMsg}`,
+              [{ text: 'OK', onPress: () => navigation.goBack() }]
+            );
+            return;
+          }
+        } catch (_costBasisErr) {
+          // Cost basis not computed; continue to show import result
+        }
+      }
+
       if (failed.length > 0) {
         Alert.alert('Import completed with errors', `Failed to add: ${failed.join(', ')}`, [
           { text: 'OK', onPress: () => navigation.goBack() },
@@ -302,23 +468,34 @@ export function AddAssetScreen() {
     }
   };
 
+  const selectType = (type: AssetType) => {
+    if (ASSET_TYPE_LISTED.includes(type as AssetTypeListed)) {
+      setFlow('listed');
+      setListedType(type as AssetTypeListed);
+      setListedCryptoSubFlow(type === 'crypto' ? 'manual' : null);
+    } else {
+      setFlow('non_listed');
+      setNonListedType(type as AssetTypeNonListed);
+    }
+  };
+
   if (flow === null) {
     return (
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.title}>Add Asset</Text>
-        <TouchableOpacity
-          style={styles.option}
-          onPress={() => setFlow('listed')}
-        >
-          <Text style={styles.optionText}>Listed (Stock, ETF, Crypto, Metal)</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.option}
-          onPress={() => setFlow('non_listed')}
-        >
-          <Text style={styles.optionText}>Non-listed (Fixed income, Real estate, Cash, Other)</Text>
-        </TouchableOpacity>
-      </View>
+        <Text style={styles.typeSubtitle}>Choose asset type</Text>
+        <View style={styles.typeButtonGrid}>
+          {ASSET_TYPE_BUTTONS.map(({ type, label }) => (
+            <TouchableOpacity
+              key={type}
+              style={styles.typeButton}
+              onPress={() => selectType(type)}
+            >
+              <Text style={styles.typeButtonText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
     );
   }
 
@@ -330,18 +507,6 @@ export function AddAssetScreen() {
     if (showCryptoChoice) {
       return (
         <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.label}>Type</Text>
-          <View style={styles.row}>
-            {(ASSET_TYPE_LISTED as readonly string[]).map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={[styles.chip, listedType === t && styles.chipActive]}
-                onPress={() => setListedType(t as AssetTypeListed)}
-              >
-                <Text style={listedType === t ? styles.chipTextActive : styles.chipText}>{t}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
           <Text style={styles.sectionLabel}>Add crypto</Text>
           <TouchableOpacity
             style={styles.option}
@@ -363,97 +528,94 @@ export function AddAssetScreen() {
     }
 
     if (showWalletImport) {
+      const hasHoldings = walletHoldings.length > 0;
       return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>Import from wallet</Text>
-          <Text style={styles.label}>Ethereum address</Text>
-          <TextInput
-            style={styles.input}
-            value={walletAddress}
-            onChangeText={(text) => {
-              setWalletAddress(text);
-              setWalletError(null);
-            }}
-            placeholder="0x..."
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!walletLoading}
-          />
-          {walletError ? <Text style={styles.errorText}>{walletError}</Text> : null}
-          <TouchableOpacity
-            style={[styles.button, walletLoading && styles.buttonDisabled]}
-            onPress={handleFetchWallet}
-            disabled={walletLoading}
+        <View style={styles.container}>
+          <ScrollView
+            style={styles.walletScroll}
+            contentContainerStyle={[
+              styles.scrollContent,
+              hasHoldings && styles.scrollContentWithFooter,
+            ]}
           >
-            {walletLoading ? (
-              <ActivityIndicator color={theme.colors.background} />
-            ) : (
-              <Text style={styles.buttonText}>Fetch holdings</Text>
-            )}
-          </TouchableOpacity>
-          {walletHoldings.length > 0 ? (
-            <>
-              <Text style={styles.sectionLabel}>
-                Found {walletHoldings.length} holding{walletHoldings.length !== 1 ? 's' : ''}
-              </Text>
-              <Text style={styles.walletNote}>
-                Tokens already in your portfolio will be skipped.
-              </Text>
-              {walletHoldings.map((h, i) => (
-                <View key={`${h.symbol}-${i}`} style={styles.walletRow}>
-                  <Text style={styles.walletSymbol}>{h.symbol}</Text>
-                  <Text style={styles.walletQuantity}>
-                    {h.quantity < 1e-6 ? h.quantity.toExponential(2) : h.quantity.toLocaleString()}
-                  </Text>
-                </View>
-              ))}
+            <Text style={styles.title}>Import from wallet</Text>
+            <Text style={styles.label}>Ethereum address</Text>
+            <TextInput
+              style={styles.input}
+              value={walletAddress}
+              onChangeText={(text) => {
+                setWalletAddress(text);
+                setWalletError(null);
+              }}
+              placeholder="0x..."
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!walletLoading}
+            />
+            {walletError ? <Text style={styles.errorText}>{walletError}</Text> : null}
+            <TouchableOpacity
+              style={[styles.button, walletLoading && styles.buttonDisabled]}
+              onPress={handleFetchWallet}
+              disabled={walletLoading}
+            >
+              {walletLoading ? (
+                <ActivityIndicator color={theme.colors.background} />
+              ) : (
+                <Text style={styles.buttonText}>Fetch holdings</Text>
+              )}
+            </TouchableOpacity>
+            {hasHoldings ? (
+              <>
+                <Text style={styles.sectionLabel}>
+                  Found {walletHoldings.length} holding{walletHoldings.length !== 1 ? 's' : ''}
+                </Text>
+                <Text style={styles.walletNote}>
+                  Tokens already in your portfolio will be skipped. Swipe left to remove.
+                </Text>
+                {walletHoldings.map((h) => (
+                  <WalletHoldingRow
+                    key={h.id}
+                    holding={h}
+                    onRemove={handleRemoveWalletHolding}
+                  />
+                ))}
+              </>
+            ) : null}
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                setListedCryptoSubFlow(null);
+                setWalletAddress('');
+                setWalletHoldings([]);
+                setWalletError(null);
+              }}
+            >
+              <Text style={styles.backButtonText}>Back</Text>
+            </TouchableOpacity>
+          </ScrollView>
+          {hasHoldings ? (
+            <View style={styles.walletFooter}>
               <TouchableOpacity
-                style={[styles.button, walletImporting && styles.buttonDisabled]}
+                style={[styles.floatingButton, walletImporting && styles.buttonDisabled]}
                 onPress={handleConfirmWalletImport}
                 disabled={walletImporting}
               >
                 {walletImporting ? (
                   <ActivityIndicator color={theme.colors.background} />
                 ) : (
-                  <Text style={styles.buttonText}>Import {walletHoldings.length} holdings</Text>
+                  <Text style={styles.buttonText}>
+                    Add {walletHoldings.length} token{walletHoldings.length !== 1 ? 's' : ''}
+                  </Text>
                 )}
               </TouchableOpacity>
-            </>
+            </View>
           ) : null}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              setListedCryptoSubFlow(null);
-              setWalletAddress('');
-              setWalletHoldings([]);
-              setWalletError(null);
-            }}
-          >
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
-        </ScrollView>
+        </View>
       );
     }
 
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.label}>Type</Text>
-        <View style={styles.row}>
-          {(ASSET_TYPE_LISTED as readonly string[]).map((t) => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.chip, listedType === t && styles.chipActive]}
-              onPress={() => {
-                setListedType(t as AssetTypeListed);
-                setListedCryptoSubFlow(null);
-                setSymbolSearchResults(null);
-                setListedAssetName('');
-              }}
-            >
-              <Text style={listedType === t ? styles.chipTextActive : styles.chipText}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
         <Text style={styles.label}>Symbol</Text>
         <TextInput
           style={styles.input}
@@ -532,18 +694,6 @@ export function AddAssetScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      <Text style={styles.label}>Type</Text>
-      <View style={styles.row}>
-        {(ASSET_TYPE_NON_LISTED as readonly string[]).map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.chip, nonListedType === t && styles.chipActive]}
-            onPress={() => setNonListedType(t as AssetTypeNonListed)}
-          >
-            <Text style={nonListedType === t ? styles.chipTextActive : styles.chipText}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
       <Text style={styles.label}>Name</Text>
       <TextInput
         style={styles.input}
@@ -623,6 +773,32 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: theme.layout.screenPadding,
     paddingBottom: theme.spacing.lg,
+  },
+  typeSubtitle: {
+    ...theme.typography.body,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.sm,
+  },
+  typeButtonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
+  typeButton: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.layout.cardRadius,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    minWidth: 100,
+  },
+  typeButtonText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.textPrimary,
+  },
+  scrollContentWithFooter: {
+    paddingBottom: theme.spacing.lg + WALLET_FOOTER_HEIGHT,
   },
   title: {
     ...theme.typography.title2,
@@ -705,6 +881,45 @@ const styles = StyleSheet.create({
     color: theme.colors.error,
     marginTop: theme.spacing.xs,
   },
+  walletScroll: { flex: 1 },
+  walletFooter: {
+    position: 'absolute',
+    left: theme.layout.screenPadding,
+    right: theme.layout.screenPadding,
+    bottom: theme.spacing.lg,
+  },
+  floatingButton: {
+    backgroundColor: theme.colors.white,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.layout.screenPadding,
+    borderRadius: theme.layout.cardRadius,
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  walletRowWrapper: {
+    marginTop: theme.spacing.xs,
+    borderRadius: theme.layout.cardRadius,
+    overflow: 'hidden',
+  },
+  walletRowDelete: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: WALLET_DELETE_WIDTH,
+    backgroundColor: theme.colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingRight: theme.spacing.xs,
+  },
+  walletRowDeleteText: {
+    ...theme.typography.caption,
+    color: theme.colors.white,
+  },
   walletRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -712,12 +927,18 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.layout.cardRadius,
-    marginTop: theme.spacing.xs,
+  },
+  walletRowText: {
+    flex: 1,
+    marginRight: theme.spacing.sm,
   },
   walletSymbol: {
     ...theme.typography.bodyMedium,
     color: theme.colors.textPrimary,
+  },
+  walletName: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
   },
   walletQuantity: {
     ...theme.typography.caption,

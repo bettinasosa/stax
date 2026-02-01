@@ -2,6 +2,8 @@ import type { Holding } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { getRateToBase, formatMoney } from '../../utils/money';
 
+const PRICED_TYPES = ['stock', 'etf', 'crypto', 'metal'] as const;
+
 /**
  * Compute current value of a holding in base currency.
  * Listed: quantity * price, then FX to base. Non-listed: manualValue, then FX to base.
@@ -19,6 +21,95 @@ export function holdingValueInBase(
     return holding.manualValue * rate;
   }
   return 0;
+}
+
+/**
+ * Reference value for change calculation: value at comparison point (24h ago for crypto, previous close for stocks).
+ * Manual holdings use manualValue (flat). Listed without ref data fall back to current value (no change).
+ */
+export function referenceValueInBase(
+  holding: Holding,
+  priceResult: PriceResult | null,
+  baseCurrency: string
+): number {
+  const rate = getRateToBase(holding.currency, baseCurrency);
+  if (holding.manualValue != null) {
+    return holding.manualValue * rate;
+  }
+  if (holding.quantity == null || !holding.symbol || !priceResult) return 0;
+  const qty = holding.quantity;
+  const priceNow = priceResult.price;
+  if (priceResult.previousClose != null) {
+    return qty * priceResult.previousClose * rate;
+  }
+  if (priceResult.changePercent != null && priceResult.changePercent !== 0) {
+    const priceRef = priceNow / (1 + priceResult.changePercent / 100);
+    return qty * priceRef * rate;
+  }
+  return qty * priceNow * rate;
+}
+
+/**
+ * Total portfolio value at reference time (previous close / 24h ago). Manual values stay constant.
+ */
+export function portfolioTotalRef(
+  holdings: Holding[],
+  pricesBySymbol: Map<string, PriceResult>,
+  baseCurrency: string
+): number {
+  return holdings.reduce((sum, h) => {
+    const price = h.symbol ? pricesBySymbol.get(h.symbol) ?? null : null;
+    return sum + referenceValueInBase(h, price, baseCurrency);
+  }, 0);
+}
+
+export interface PortfolioChange {
+  totalNow: number;
+  totalRef: number;
+  pnl: number;
+  pct: number;
+  label: '24h' | 'previous_close' | 'priced_assets';
+  hasManual: boolean;
+}
+
+/**
+ * Compute portfolio change in a way that will not lie: valueNow/valueRef per holding, then aggregate.
+ * Label: "24h" when crypto-heavy with 24h data, "previous_close" for stocks, "priced_assets" when mixed or manual present.
+ */
+export function portfolioChange(
+  holdings: Holding[],
+  pricesBySymbol: Map<string, PriceResult>,
+  baseCurrency: string
+): PortfolioChange | null {
+  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency);
+  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency);
+  if (totalRef <= 0) return null;
+  const pnl = totalNow - totalRef;
+  const pct = (totalNow - totalRef) / totalRef;
+
+  const hasManual = holdings.some((h) => h.manualValue != null);
+  const priced = holdings.filter(
+    (h) => h.symbol && PRICED_TYPES.includes(h.type as (typeof PRICED_TYPES)[number])
+  );
+  const withPrevClose = priced.filter((h) => {
+    const pr = h.symbol ? pricesBySymbol.get(h.symbol) : null;
+    return pr?.previousClose != null;
+  });
+  const with24hOnly = priced.filter((h) => {
+    const pr = h.symbol ? pricesBySymbol.get(h.symbol) : null;
+    return pr?.changePercent != null && pr.previousClose == null;
+  });
+
+  let label: PortfolioChange['label'] = 'priced_assets';
+  if (hasManual || (withPrevClose.length > 0 && with24hOnly.length > 0)) {
+    label = 'priced_assets';
+  } else if (withPrevClose.length > 0) {
+    label = 'previous_close';
+  } else if (with24hOnly.length > 0) {
+    label = '24h';
+  }
+
+  return { totalNow, totalRef, pnl, pct, label, hasManual };
 }
 
 /**

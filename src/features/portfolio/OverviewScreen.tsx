@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,35 +10,28 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { PieChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 import { usePortfolio } from './usePortfolio';
 import {
   holdingsWithValues,
-  allocationByAssetClass,
   formatHoldingValueDisplay,
+  portfolioChange,
+  portfolioTotalRef,
+  portfolioTotalBase,
   type HoldingWithValue,
 } from './portfolioUtils';
 import { formatMoney } from '../../utils/money';
 import { theme } from '../../utils/theme';
-import { holdingRepo, eventRepo } from '../../data';
+import { holdingRepo, eventRepo, portfolioValueSnapshotRepo } from '../../data';
 import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
-import type { Event } from '../../data/schemas';
+import type { Event, PortfolioValueSnapshot } from '../../data/schemas';
 import type { Holding } from '../../data/schemas';
-
-const CHART_COLORS = [
-  '#7C3AED',
-  '#22C55E',
-  '#A1A1AA',
-  '#6B7280',
-  '#1F1F26',
-  '#EF4444',
-];
 
 type UpcomingItem = { event: Event; holding: Holding };
 
 /**
- * Overview tab: total value, allocation, top 3 holdings, next 3 events, Add Holding CTA.
- * Purpose: "What is my total, what is it made of, what needs attention."
+ * Overview tab: total value and change at top, 7-day historical value line chart, top holdings, upcoming events, Add Holding CTA.
+ * Purpose: "What is my total, how high or low I am, and how it's changed over the last week."
  */
 export function OverviewScreen() {
   const navigation = useNavigation();
@@ -46,14 +39,61 @@ export function OverviewScreen() {
   const { portfolio, holdings, pricesBySymbol, totalBase, loading, error, refresh } = usePortfolio();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const withValues = holdingsWithValues(holdings, pricesBySymbol, baseCurrency);
-  const allocation = allocationByAssetClass(withValues);
   const top3 = withValues.slice(0, 3);
+  const change = portfolioChange(holdings, pricesBySymbol, baseCurrency);
   const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
+  const [historySnapshots, setHistorySnapshots] = useState<PortfolioValueSnapshot[]>([]);
+
+  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency);
+  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency);
+
+  const loadHistory = useCallback(async () => {
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
+    const snapshots = await portfolioValueSnapshotRepo.getByPortfolioSince(
+      db,
+      DEFAULT_PORTFOLIO_ID,
+      since.toISOString()
+    );
+    setHistorySnapshots(snapshots);
+  }, [db]);
+
+  const performanceChartData = useMemo(() => {
+    const points = 7;
+    const labels: string[] = [];
+    const values: number[] = [];
+
+    if (historySnapshots.length >= 2) {
+      for (let i = 0; i < historySnapshots.length; i++) {
+        const s = historySnapshots[i];
+        values.push(s.valueBase);
+        const d = new Date(s.timestamp);
+        const isFirst = i === 0;
+        const isLast = i === historySnapshots.length - 1;
+        labels.push(isFirst ? d.toLocaleDateString(undefined, { weekday: 'short' }) : isLast ? 'Now' : '');
+      }
+    } else {
+      for (let i = 0; i <= points; i++) {
+        const t = i / points;
+        values.push(totalRef + (totalNow - totalRef) * t);
+        const isFirst = i === 0;
+        const isLast = i === points;
+        if (isFirst) {
+          const d = new Date();
+          d.setDate(d.getDate() - 7);
+          labels.push(d.toLocaleDateString(undefined, { weekday: 'short' }));
+        } else labels.push(isLast ? 'Now' : '');
+      }
+    }
+    const data = values.length >= 2 ? values : [totalRef, totalNow];
+    return { labels, datasets: [{ data }] };
+  }, [historySnapshots, totalRef, totalNow]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [refresh])
+      loadHistory();
+    }, [refresh, loadHistory])
   );
 
   const loadUpcoming = useCallback(async () => {
@@ -74,14 +114,6 @@ export function OverviewScreen() {
     if (holdings.length > 0) loadUpcoming();
     else setUpcoming([]);
   }, [holdings.length, loadUpcoming]);
-
-  const pieData = allocation.map((slice, i) => ({
-    name: slice.assetClass.replace(/_/g, ' '),
-    population: slice.percent,
-    color: CHART_COLORS[i % CHART_COLORS.length],
-    legendFontColor: theme.colors.textSecondary,
-    legendFontSize: 12,
-  }));
 
   if (error) {
     return (
@@ -125,7 +157,16 @@ export function OverviewScreen() {
     );
   }
 
-  const asOfLabel = 'As of ' + new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const changePct =
+    change != null
+      ? `${change.pct >= 0 ? '+' : ''}${(change.pct * 100).toFixed(2)}%`
+      : null;
+  const changeColor = change != null && change.pnl >= 0 ? theme.colors.positive : theme.colors.negative;
+  const changeArrow = change != null && change.pnl >= 0 ? '▲' : '▼';
+  const changeAmount =
+    change != null
+      ? formatMoney(change.pnl, baseCurrency)
+      : null;
   const formatUpcomingDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -143,45 +184,73 @@ export function OverviewScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={loading}
-          onRefresh={() => {
-            refresh();
-            loadUpcoming();
-          }}
-          tintColor={theme.colors.textPrimary}
-        />
-      }
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={async () => {
+              await refresh();
+              loadUpcoming();
+              loadHistory();
+            }}
+            tintColor={theme.colors.textPrimary}
+          />
+        }
     >
-      <View style={styles.totalCard}>
-        <Text style={styles.totalLabel}>Total portfolio value</Text>
+      <View style={styles.heroSection}>
         <Text style={styles.totalValue}>{formatMoney(totalBase, baseCurrency)}</Text>
-        <Text style={styles.asOf}>{asOfLabel}</Text>
+        {changeAmount != null && changePct != null && (
+          <View style={styles.changeRow}>
+            <Text style={[styles.changeAmount, { color: changeColor }]}>
+              {changeAmount}
+            </Text>
+            <Text style={[styles.changePct, { color: changeColor }]}>
+              {changeArrow} {changePct}
+            </Text>
+          </View>
+        )}
       </View>
 
-      {allocation.length > 0 && (
+      {totalRef >= 0 && (
         <View style={styles.chartSection}>
-          <Text style={styles.sectionTitle}>Allocation</Text>
-          <PieChart
-            data={pieData}
+          <Text style={styles.chartLabel}>Last 7 days</Text>
+          <LineChart
+            data={performanceChartData}
             width={screenWidth - theme.layout.screenPadding * 2}
             height={200}
             chartConfig={{
-              color: () => theme.colors.textSecondary,
+              backgroundColor: 'transparent',
+              backgroundGradientFrom: 'transparent',
+              backgroundGradientTo: 'transparent',
+              decimalPlaces: 0,
+              color: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.9})`,
               labelColor: () => theme.colors.textSecondary,
+              propsForDots: { r: 0 },
+              propsForLabels: { fontSize: 10 },
             }}
-            accessor="population"
-            backgroundColor="transparent"
-            paddingLeft="15"
-            absolute
+            bezier
+            withInnerLines={false}
+            withOuterLines={true}
+            fromZero={false}
+            style={styles.lineChart}
           />
         </View>
       )}
 
       {top3.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Top Holdings</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Top Holdings</Text>
+            <TouchableOpacity
+              onPress={() =>
+                (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', {
+                  screen: 'HoldingsList',
+                })
+              }
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.seeAllText}>See all</Text>
+            </TouchableOpacity>
+          </View>
           {top3.map((item: HoldingWithValue) => (
             <View key={item.holding.id} style={styles.topRow}>
               <Text style={styles.topName} numberOfLines={1}>
@@ -272,32 +341,48 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     textAlign: 'center',
   },
-  totalCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.layout.cardRadius,
-    padding: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
+  heroSection: {
+    marginBottom: theme.spacing.md,
+    alignItems: 'center',
   },
-  totalLabel: {
+  totalValue: {
+    ...theme.typography.title,
+    fontSize: 36,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  changeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  changeAmount: {
+    ...theme.typography.bodySemi,
+  },
+  changePct: {
+    ...theme.typography.body,
+  },
+  chartSection: { marginBottom: theme.spacing.sm },
+  chartLabel: {
     ...theme.typography.caption,
     color: theme.colors.textSecondary,
     marginBottom: theme.spacing.xs,
   },
-  totalValue: {
-    ...theme.typography.title,
-    color: theme.colors.textPrimary,
-  },
-  asOf: {
-    ...theme.typography.small,
-    color: theme.colors.textTertiary,
-    marginTop: theme.spacing.xs,
-  },
-  chartSection: { marginBottom: theme.spacing.sm },
+  lineChart: { borderRadius: theme.radius.sm },
   section: { marginBottom: theme.spacing.sm },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.xs,
+  },
   sectionTitle: {
     ...theme.typography.bodySemi,
     color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs,
+  },
+  seeAllText: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.accent,
   },
   topRow: {
     flexDirection: 'row',

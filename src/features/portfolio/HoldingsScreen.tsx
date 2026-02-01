@@ -27,14 +27,15 @@ const FILTER_PILLS: { label: string; types: string[] }[] = [
 ];
 
 /**
- * Holdings list: name, asset class badge, value, weight %. Filter pills. Tap row -> detail. Floating + Add.
- * Purpose: "Edit and manage everything I own."
+ * Holdings list: name, asset class badge, value, weight %. Filter pills. Tap row -> detail.
+ * Edit button under bubbles toggles edit mode: red minus on each row to remove. Floating + Add.
  */
 export function HoldingsScreen() {
   const navigation = useNavigation();
   const db = useSQLiteContext();
   const { portfolio, holdings, pricesBySymbol, loading, refresh } = usePortfolio();
   const [filterIndex, setFilterIndex] = useState(0);
+  const [editMode, setEditMode] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -82,7 +83,7 @@ export function HoldingsScreen() {
     <View style={styles.rowWrapper}>
       <TouchableOpacity
         style={styles.row}
-        onPress={() => handlePress(item)}
+        onPress={() => !editMode && handlePress(item)}
         activeOpacity={0.7}
       >
         <View style={styles.rowLeft}>
@@ -93,36 +94,40 @@ export function HoldingsScreen() {
             <Text style={styles.badgeText}>{item.holding.type.replace(/_/g, ' ')}</Text>
           </View>
         </View>
-        <View style={styles.rowRight}>
-          <View>
-            <Text style={styles.value}>
-              {formatHoldingValueDisplay(
-                item.holding,
-                item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
-                baseCurrency
-              )}
-            </Text>
-            {item.holding.symbol && (() => {
-              const pr = pricesBySymbol.get(item.holding.symbol!);
-              const pct = pr?.changePercent;
-              if (pct == null || pct === 0) return null;
-              const isPositive = pct > 0;
-              return (
-                <Text style={[styles.dailyChange, isPositive ? styles.dailyChangeUp : styles.dailyChangeDown]}>
-                  {isPositive ? '+' : ''}{pct.toFixed(2)}%
-                </Text>
-              );
-            })()}
+        {!editMode && (
+          <View style={styles.rowRight}>
+            <View>
+              <Text style={styles.value}>
+                {formatHoldingValueDisplay(
+                  item.holding,
+                  item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
+                  baseCurrency
+                )}
+              </Text>
+              {item.holding.symbol && (() => {
+                const pr = pricesBySymbol.get(item.holding.symbol!);
+                const pct = pr?.changePercent;
+                if (pct == null || pct === 0) return null;
+                const isPositive = pct > 0;
+                return (
+                  <Text style={[styles.dailyChange, isPositive ? styles.dailyChangeUp : styles.dailyChangeDown]}>
+                    {isPositive ? '+' : ''}{pct.toFixed(2)}%
+                  </Text>
+                );
+              })()}
+            </View>
+            <Text style={styles.weight}>{item.weightPercent.toFixed(1)}%</Text>
           </View>
-          <Text style={styles.weight}>{item.weightPercent.toFixed(1)}%</Text>
-        </View>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.deleteBtn}
-        onPress={() => handleDelete(item)}
-        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-      >
-        <Text style={styles.deleteBtnText}>Remove</Text>
+        )}
+        {editMode && (
+          <TouchableOpacity
+            style={styles.removeCircleBtn}
+            onPress={() => handleDelete(item)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.removeCircleBtnText}>−</Text>
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -159,6 +164,16 @@ export function HoldingsScreen() {
           </TouchableOpacity>
         ))}
       </View>
+      <View style={styles.editRow}>
+        <TouchableOpacity
+          style={[styles.editButton, editMode && styles.editButtonActive]}
+          onPress={() => setEditMode((prev) => !prev)}
+        >
+          <Text style={editMode ? styles.editButtonTextActive : styles.editButtonText}>
+            {editMode ? 'Done' : 'Edit'}
+          </Text>
+        </TouchableOpacity>
+      </View>
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.holding.id}
@@ -170,7 +185,14 @@ export function HoldingsScreen() {
       />
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => (navigation as { navigate: (s: string) => void }).navigate('AddAsset')}
+        onPress={() => {
+          const pill = FILTER_PILLS[filterIndex];
+          const initialType = pill.types.length > 0 ? pill.types[0] : undefined;
+          (navigation as { navigate: (s: string, p?: { initialType?: string }) => void }).navigate(
+            'AddAsset',
+            initialType ? { initialType } : undefined
+          );
+        }}
         activeOpacity={0.8}
       >
         <Text style={styles.fabText}>+ Add</Text>
@@ -211,6 +233,32 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     color: theme.colors.background,
   },
+  editRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: theme.spacing.sm,
+    paddingBottom: theme.spacing.xs,
+  },
+  editButton: {
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  editButtonActive: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accent,
+  },
+  editButtonText: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+  },
+  editButtonTextActive: {
+    ...theme.typography.caption,
+    color: theme.colors.textPrimary,
+  },
   rowWrapper: {
     marginBottom: theme.spacing.xs,
   },
@@ -224,15 +272,19 @@ const styles = StyleSheet.create({
     minHeight: theme.layout.rowHeight,
   },
   rowLeft: { flex: 1 },
-  deleteBtn: {
-    alignSelf: 'flex-end',
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.sm,
-    marginTop: 2,
+  removeCircleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.negative,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  deleteBtnText: {
-    ...theme.typography.small,
-    color: theme.colors.negative,
+  removeCircleBtnText: {
+    ...theme.typography.bodySemi,
+    color: theme.colors.textPrimary,
+    fontSize: 20,
+    lineHeight: 22,
   },
   name: {
     ...theme.typography.bodyMedium,

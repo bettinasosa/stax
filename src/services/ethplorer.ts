@@ -12,9 +12,11 @@ const MIN_QUANTITY = 1e-10;
 
 /** Parsed holding from Ethplorer suitable for creating a listed crypto holding. */
 export interface WalletHolding {
+  id: string;
   symbol: string;
   name: string;
   quantity: number;
+  contractAddress?: string;
 }
 
 interface EthplorerTokenInfo {
@@ -80,7 +82,7 @@ export async function fetchWalletHoldings(address: string): Promise<WalletHoldin
   if (ethBalance != null) {
     const q = typeof ethBalance === 'string' ? parseRawBalance(ethBalance, 18) : ethBalance;
     if (q >= MIN_QUANTITY) {
-      holdings.push({ symbol: 'ETH', name: 'Ethereum', quantity: q });
+      holdings.push({ id: 'eth-native', symbol: 'ETH', name: 'Ethereum', quantity: q });
     }
   }
 
@@ -90,12 +92,14 @@ export async function fetchWalletHoldings(address: string): Promise<WalletHoldin
     const info = t.tokenInfo;
     const symbol = (info.symbol ?? 'UNKNOWN').trim().toUpperCase();
     const name = (info.name ?? symbol).trim();
+    const contractAddress = normalizeAddress(info.address);
     const decimals = parseInt(info.decimals ?? '18', 10);
     const raw = t.rawBalance ?? (t.balance != null ? String(t.balance) : null);
     if (!raw) continue;
     const quantity = parseRawBalance(raw, decimals);
     if (quantity < MIN_QUANTITY) continue;
-    holdings.push({ symbol, name, quantity });
+    const id = contractAddress ?? `${symbol.toLowerCase()}-${holdings.length}`;
+    holdings.push({ id, symbol, name, quantity, contractAddress });
   }
 
   return holdings;
@@ -108,4 +112,11 @@ function parseRawBalance(raw: string, decimals: number): number {
   const n = Number(raw.trim());
   if (!Number.isFinite(n) || decimals < 0) return 0;
   return n / Math.pow(10, decimals);
+}
+
+function normalizeAddress(address?: string): string | undefined {
+  if (!address) return undefined;
+  const trimmed = address.trim();
+  if (!trimmed) return undefined;
+  return trimmed.toLowerCase();
 }

@@ -54,6 +54,29 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_event_holding ON event(holding_id);
   `,
+  `
+  CREATE TABLE IF NOT EXISTS lot (
+    id TEXT PRIMARY KEY NOT NULL,
+    holding_id TEXT NOT NULL REFERENCES holding(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    qty_in REAL NOT NULL,
+    cost_basis_usd_total REAL,
+    source TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_lot_holding ON lot(holding_id);
+  CREATE INDEX IF NOT EXISTS idx_lot_asset ON lot(asset_id);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS portfolio_value_snapshot (
+    id TEXT PRIMARY KEY NOT NULL,
+    portfolio_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    value_base REAL NOT NULL,
+    base_currency TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_portfolio_value_snapshot_portfolio_time ON portfolio_value_snapshot(portfolio_id, timestamp);
+  `,
 ];
 
 /** Valid UUID v4 format so Zod .uuid() accepts it. */
@@ -66,8 +89,10 @@ const LEGACY_PORTFOLIO_ID = '00000000-0000-0000-0000-000000000001';
  */
 export async function clearAllData(db: SQLiteDatabase): Promise<void> {
   await db.runAsync('DELETE FROM event');
+  await db.runAsync('DELETE FROM lot');
   await db.runAsync('DELETE FROM holding');
   await db.runAsync('DELETE FROM price_point');
+  await db.runAsync('DELETE FROM portfolio_value_snapshot');
 }
 
 /**
