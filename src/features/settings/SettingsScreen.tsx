@@ -177,6 +177,12 @@ export function SettingsScreen() {
               <Text style={styles.buttonDangerText}>Delete all data & start from scratch</Text>
             )}
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.buttonSecondary}
+            onPress={() => (navigation as { navigate: (name: string) => void }).navigate('ImportCSV')}
+          >
+            <Text style={styles.buttonSecondaryText}>Import from CSV</Text>
+          </TouchableOpacity>
         </View>
       )}
       <View style={styles.section}>

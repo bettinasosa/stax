@@ -20,6 +20,7 @@ const FILTER_PILLS: { label: string; types: string[] }[] = [
   { label: 'All', types: [] },
   { label: 'Stocks', types: ['stock', 'etf'] },
   { label: 'Crypto', types: ['crypto'] },
+  { label: 'Commodities', types: ['commodity'] },
   { label: 'Fixed Income', types: ['fixed_income'] },
   { label: 'Real Estate', types: ['real_estate'] },
   { label: 'Cash', types: ['cash'] },

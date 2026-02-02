@@ -6,4 +6,5 @@ export const SUPPORTED_PRICE_FEEDS = [
   'Crypto: CoinGecko (no key required; optional API key for higher rate limits). Optional fallback: CoinMarketCap (API key required).',
   'Crypto wallet import: Ethplorer (Ethereum address → token balances). Optional API key for higher limits.',
   'Metal: Gold (XAU) via CoinGecko or fallback.',
+  'CSV import: Settings → Your data → Import from CSV. Paste CSV with columns: type, name, symbol, quantity, cost_basis, currency, manual_value, note. Listed types: stock, etf, crypto, metal, commodity; non-listed: cash, fixed_income, real_estate, other.',
 ].join('\n');

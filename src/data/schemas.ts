@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ASSET_TYPES,
+  ASSET_TYPE_LISTED,
   EVENT_KINDS,
   type AssetType,
   type EventKind,
@@ -105,7 +106,7 @@ export type CreatePortfolioInput = z.infer<typeof createPortfolioSchema>;
 export const createListedHoldingSchema = z
   .object({
     portfolioId: z.string().uuid(),
-    type: z.enum(['stock', 'etf', 'crypto', 'metal']),
+    type: z.enum(ASSET_TYPE_LISTED as unknown as [string, ...string[]]),
     name: z.string().min(1),
     symbol: z.string().min(1),
     quantity: z.number().positive(),

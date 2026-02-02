@@ -26,7 +26,7 @@ export interface PriceMetadata {
 
 /**
  * Fetch latest price for a listed asset from external APIs.
- * Uses Alpha Vantage for stocks/ETFs (requires API key), CoinGecko for crypto (no key; optional CMC fallback).
+ * Uses Alpha Vantage for stocks/ETFs/commodities (requires API key), CoinGecko for crypto (no key; optional CMC fallback).
  * Metal: single symbol supported via fallback.
  */
 export async function fetchLatestPrice(
@@ -40,6 +40,9 @@ export async function fetchLatestPrice(
   }
   if (type === 'metal') {
     return fetchMetalPrice(normalizedSymbol);
+  }
+  if (type === 'commodity') {
+    return fetchStockOrEtfPrice(normalizedSymbol);
   }
   return fetchStockOrEtfPrice(normalizedSymbol);
 }

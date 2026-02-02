@@ -22,7 +22,7 @@ import { theme } from '../../utils/theme';
 
 type RouteParams = { HoldingDetail: { holdingId: string } };
 
-const isListed = (type: string) => ['stock', 'etf', 'crypto', 'metal'].includes(type);
+const isListed = (type: string) => ['stock', 'etf', 'crypto', 'metal', 'commodity'].includes(type);
 
 /**
  * Holding Detail: summary, editable fields, events list, Add Event, Edit, Delete.

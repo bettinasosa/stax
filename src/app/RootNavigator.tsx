@@ -7,6 +7,7 @@ import { LoginScreen } from '../features/auth/LoginScreen';
 import { SignUpScreen } from '../features/auth/SignUpScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
+import { ImportCSVScreen } from '../features/settings/ImportCSVScreen';
 import { AppNavigation } from './navigation';
 import { theme } from '../utils/theme';
 
@@ -82,6 +83,11 @@ export function RootNavigator() {
           name="Settings"
           component={SettingsScreen}
           options={{ title: 'Settings' }}
+        />
+        <Stack.Screen
+          name="ImportCSV"
+          component={ImportCSVScreen}
+          options={{ title: 'Import from CSV' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

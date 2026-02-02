@@ -9,6 +9,9 @@ export type AnalyticsEvent =
   | { name: 'wallet_import_started' }
   | { name: 'wallet_import_completed'; count: number }
   | { name: 'wallet_import_failed'; reason: string }
+  | { name: 'csv_import_started' }
+  | { name: 'csv_import_completed'; count: number }
+  | { name: 'csv_import_failed'; reason: string }
   | { name: 'paywall_viewed'; trigger: string }
   | { name: 'trial_started' }
   | { name: 'purchase_completed' }
@@ -41,6 +44,18 @@ export function trackWalletImportCompleted(count: number): void {
 
 export function trackWalletImportFailed(reason: string): void {
   logEvent({ name: 'wallet_import_failed', reason });
+}
+
+export function trackCsvImportStarted(): void {
+  logEvent({ name: 'csv_import_started' });
+}
+
+export function trackCsvImportCompleted(count: number): void {
+  logEvent({ name: 'csv_import_completed', count });
+}
+
+export function trackCsvImportFailed(reason: string): void {
+  logEvent({ name: 'csv_import_failed', reason });
 }
 
 export function trackPaywallViewed(trigger: string): void {

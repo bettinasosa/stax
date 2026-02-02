@@ -2,7 +2,7 @@
  * App-wide constants and enums.
  */
 
-export const ASSET_TYPE_LISTED = ['stock', 'etf', 'crypto', 'metal'] as const;
+export const ASSET_TYPE_LISTED = ['stock', 'etf', 'crypto', 'metal', 'commodity'] as const;
 
 export const ASSET_TYPE_NON_LISTED = ['fixed_income', 'real_estate', 'cash', 'other'] as const;
 

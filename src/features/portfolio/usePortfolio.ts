@@ -57,7 +57,7 @@ export function usePortfolio() {
 
       const listed = h.filter(
         (x): x is Holding & { symbol: string; type: AssetTypeListed } =>
-          x.symbol != null && ['stock', 'etf', 'crypto', 'metal'].includes(x.type)
+          x.symbol != null && ['stock', 'etf', 'crypto', 'metal', 'commodity'].includes(x.type)
       );
       const symbols = Array.from(new Set(listed.map((x) => x.symbol)));
 

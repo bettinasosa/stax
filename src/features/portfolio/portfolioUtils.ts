@@ -2,7 +2,7 @@ import type { Holding } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { getRateToBase, formatMoney } from '../../utils/money';
 
-const PRICED_TYPES = ['stock', 'etf', 'crypto', 'metal'] as const;
+const PRICED_TYPES = ['stock', 'etf', 'crypto', 'metal', 'commodity'] as const;
 
 /**
  * Compute current value of a holding in base currency.
@@ -189,7 +189,7 @@ export function formatHoldingValueDisplay(
   baseCurrency: string
 ): string {
   const isListed =
-    holding.symbol != null && ['stock', 'etf', 'crypto', 'metal'].includes(holding.type);
+    holding.symbol != null && ['stock', 'etf', 'crypto', 'metal', 'commodity'].includes(holding.type);
   if (
     isListed &&
     !priceResult &&

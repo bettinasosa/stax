@@ -52,6 +52,7 @@ const ASSET_TYPE_BUTTONS: { type: AssetType; label: string }[] = [
   { type: 'etf', label: 'ETF' },
   { type: 'crypto', label: 'Crypto' },
   { type: 'metal', label: 'Metal' },
+  { type: 'commodity', label: 'Commodity' },
   { type: 'real_estate', label: 'Real Estate' },
   { type: 'cash', label: 'Cash' },
   { type: 'fixed_income', label: 'Fixed Income' },
