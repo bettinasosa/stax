@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { pricePointSchema, type PricePoint } from './schemas';
+import { normalizeSymbol } from '../utils/constants';
 
 /**
  * Get latest price for a symbol.
@@ -8,10 +9,11 @@ export async function getLatestBySymbol(
   db: SQLiteDatabase,
   symbol: string
 ): Promise<PricePoint | null> {
+  const normalized = normalizeSymbol(symbol);
   const row = await db.getFirstAsync<Record<string, unknown>>(
     `SELECT symbol, timestamp, price, currency, source, previous_close as previousClose, change_percent as changePercent
      FROM price_point WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1`,
-    [symbol]
+    [normalized]
   );
   return row ? pricePointSchema.parse(row) : null;
 }
@@ -25,12 +27,13 @@ export async function getLatestBySymbols(
 ): Promise<Map<string, PricePoint>> {
   const result = new Map<string, PricePoint>();
   if (symbols.length === 0) return result;
-  const placeholders = symbols.map(() => '?').join(',');
+  const normalized = symbols.map((s) => normalizeSymbol(s));
+  const placeholders = normalized.map(() => '?').join(',');
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT symbol, timestamp, price, currency, source, previous_close as previousClose, change_percent as changePercent FROM price_point p
      WHERE p.symbol IN (${placeholders})
      AND p.timestamp = (SELECT MAX(timestamp) FROM price_point WHERE symbol = p.symbol)`,
-    symbols
+    normalized
   );
   for (const row of rows) {
     const pp = pricePointSchema.parse(row);

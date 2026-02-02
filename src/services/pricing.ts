@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { pricePointRepo } from '../data';
 import type { PricePoint } from '../data/schemas';
 import type { AssetTypeListed } from '../utils/constants';
+import { normalizeSymbol } from '../utils/constants';
 import { getCoinGeckoConfig, getCoinGeckoId } from './coingecko';
 import { getCoinMarketCapPrice, isCoinMarketCapConfigured } from './coinmarketcap';
 import { getQuote as getFinnhubQuote, isFinnhubConfigured } from './finnhub';
@@ -34,7 +35,7 @@ export async function fetchLatestPrice(
   type: AssetTypeListed,
   metadata?: PriceMetadata
 ): Promise<PriceResult | null> {
-  const normalizedSymbol = symbol.toUpperCase().trim();
+  const normalizedSymbol = normalizeSymbol(symbol);
   if (type === 'crypto') {
     return fetchCryptoPrice(normalizedSymbol, metadata);
   }
@@ -210,7 +211,8 @@ export async function refreshPrices(
   const points: PricePoint[] = [];
   const now = new Date().toISOString();
   for (const { symbol, type, metadata } of items) {
-    const result = await fetchLatestPrice(symbol, type, metadata);
+    const normalizedSymbol = normalizeSymbol(symbol);
+    const result = await fetchLatestPrice(normalizedSymbol, type, metadata);
     if (
       result &&
       typeof result.price === 'number' &&
@@ -218,7 +220,7 @@ export async function refreshPrices(
       result.price > 0
     ) {
       points.push({
-        symbol: result.symbol,
+        symbol: normalizeSymbol(result.symbol),
         timestamp: now,
         price: result.price,
         currency: result.currency,
@@ -242,7 +244,8 @@ export async function getLatestPrice(
   type: AssetTypeListed,
   metadata?: PriceMetadata
 ): Promise<PriceResult | null> {
-  const cached = await pricePointRepo.getLatestBySymbol(db, symbol);
+  const normalizedSymbol = normalizeSymbol(symbol);
+  const cached = await pricePointRepo.getLatestBySymbol(db, normalizedSymbol);
   if (cached) {
     return {
       price: cached.price,
@@ -250,7 +253,7 @@ export async function getLatestPrice(
       symbol: cached.symbol,
     };
   }
-  const result = await fetchLatestPrice(symbol, type, metadata);
+  const result = await fetchLatestPrice(normalizedSymbol, type, metadata);
   if (
     result &&
     typeof result.price === 'number' &&
@@ -258,7 +261,7 @@ export async function getLatestPrice(
     result.price > 0
   ) {
     await pricePointRepo.upsert(db, {
-      symbol: result.symbol,
+      symbol: normalizeSymbol(result.symbol),
       timestamp: new Date().toISOString(),
       price: result.price,
       currency: result.currency,

@@ -37,3 +37,11 @@ export const STAX_SCORE_TOP3_PENALTY = 15;
 export const STAX_SCORE_COUNTRY_PENALTY = 15;
 export const STAX_SCORE_SECTOR_PENALTY = 10;
 export const STAX_SCORE_CRYPTO_PENALTY = 10;
+
+/**
+ * Normalize a listed asset symbol for consistent storage and lookups.
+ * Symbols are treated case-insensitively, but we persist them uppercased.
+ */
+export function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase();
+}
