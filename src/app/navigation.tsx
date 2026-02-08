@@ -12,6 +12,7 @@ import { AnalysisScreen } from '../features/analysis/AnalysisScreen';
 import { theme } from '../utils/theme';
 import { ProfileHeaderButton } from './ProfileHeaderButton';
 import { AddAssetHeaderButton } from './AddAssetHeaderButton';
+import { PortfolioSelectorHeader } from '../features/portfolio/PortfolioSelectorHeader';
 
 const Tab = createBottomTabNavigator();
 
@@ -51,6 +52,7 @@ function HoldingsStack() {
         component={HoldingsScreen}
         options={{
           title: 'Holdings',
+          headerLeft: () => <PortfolioSelectorHeader />,
           headerRight: () => (
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <AddAssetHeaderButton />
@@ -96,6 +98,7 @@ export function AppNavigation() {
         options={{
           title: 'Overview',
           tabBarIcon: tabIcons.Overview,
+          headerLeft: () => <PortfolioSelectorHeader />,
         }}
       />
       <Tab.Screen

@@ -77,6 +77,7 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_portfolio_value_snapshot_portfolio_time ON portfolio_value_snapshot(portfolio_id, timestamp);
   `,
+  `ALTER TABLE portfolio ADD COLUMN archived_at TEXT;`,
 ];
 
 /** Valid UUID v4 format so Zod .uuid() accepts it. */
@@ -101,7 +102,8 @@ export async function clearAllData(db: SQLiteDatabase): Promise<void> {
  */
 export async function initDb(db: SQLiteDatabase): Promise<void> {
   for (const sql of MIGRATIONS) {
-    const isAlter = sql.trim().startsWith('ALTER TABLE');
+    const trimmed = sql.trim();
+    const isAlter = trimmed.startsWith('ALTER TABLE');
     if (isAlter) {
       try {
         await db.runAsync(sql);

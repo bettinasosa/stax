@@ -26,7 +26,7 @@ import {
   CSV_IMPORT_EXAMPLE_LISTED,
   CSV_IMPORT_EXAMPLE_NON_LISTED,
 } from '../../services/csvImport';
-import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
+import { usePortfolio } from '../portfolio/usePortfolio';
 import { FREE_HOLDINGS_LIMIT } from '../../utils/constants';
 import { theme } from '../../utils/theme';
 
@@ -34,9 +34,11 @@ export function ImportCSVScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
   const { isPro } = useEntitlements();
+  const { activePortfolioId } = usePortfolio();
   const [csvText, setCsvText] = useState('');
   const [parsed, setParsed] = useState<ReturnType<typeof parseCSVImport> | null>(null);
   const [importing, setImporting] = useState(false);
+  const portfolioId = activePortfolioId ?? '';
 
   const handlePreview = () => {
     const result = parseCSVImport(csvText);
@@ -50,7 +52,8 @@ export function ImportCSVScreen() {
       Alert.alert('Nothing to import', 'Parse valid rows first, or fix errors.');
       return;
     }
-    const existingCount = await holdingRepo.countByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+    if (!portfolioId) return;
+    const existingCount = await holdingRepo.countByPortfolioId(db, portfolioId);
     const allowed = isPro ? total : Math.max(0, FREE_HOLDINGS_LIMIT - existingCount);
     if (allowed <= 0) {
       Alert.alert(
@@ -59,8 +62,8 @@ export function ImportCSVScreen() {
       );
       return;
     }
-    const toListed = listedWithPortfolioId(parsed.listed, DEFAULT_PORTFOLIO_ID);
-    const toNonListed = nonListedWithPortfolioId(parsed.nonListed, DEFAULT_PORTFOLIO_ID);
+    const toListed = listedWithPortfolioId(parsed.listed, portfolioId);
+    const toNonListed = nonListedWithPortfolioId(parsed.nonListed, portfolioId);
     const takeListed = Math.min(toListed.length, allowed);
     const takeNonListed = Math.min(toNonListed.length, Math.max(0, allowed - takeListed));
     const listToAdd = toListed.slice(0, takeListed);

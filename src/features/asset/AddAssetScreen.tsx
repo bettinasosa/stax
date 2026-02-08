@@ -41,6 +41,7 @@ import {
 import type { AssetType, AssetTypeListed, AssetTypeNonListed } from '../../utils/constants';
 import type { EventKind } from '../../utils/constants';
 import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
+import { usePortfolio } from '../portfolio/usePortfolio';
 import { theme } from '../../utils/theme';
 
 type Flow = 'listed' | 'non_listed' | null;
@@ -145,6 +146,7 @@ export function AddAssetScreen() {
   const route = useRoute();
   const initialTypeParam = (route.params as AddAssetRouteParams | undefined)?.initialType;
   const { isPro } = useEntitlements();
+  const { activePortfolioId } = usePortfolio();
 
   const [flow, setFlow] = useState<Flow>(() => {
     if (initialTypeParam && ASSET_TYPES.includes(initialTypeParam)) {
@@ -222,7 +224,7 @@ export function AddAssetScreen() {
 
   const handleSaveListed = async () => {
     if (!isPro) {
-      const count = await holdingRepo.countByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+      const count = await holdingRepo.countByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
       if (count >= FREE_HOLDINGS_LIMIT) {
         Alert.alert(
           'Limit reached',
@@ -238,7 +240,7 @@ export function AddAssetScreen() {
       return;
     }
     const parsed = createListedHoldingSchema.safeParse({
-      portfolioId: DEFAULT_PORTFOLIO_ID,
+      portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: listedType,
       name: (listedAssetName || symbol).trim(),
       symbol: symbol.trim().toUpperCase(),
@@ -298,7 +300,7 @@ export function AddAssetScreen() {
 
   const handleConfirmWalletImport = async () => {
     if (walletHoldings.length === 0) return;
-    const existingHoldings = await holdingRepo.getByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+    const existingHoldings = await holdingRepo.getByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
     const existingSymbols = new Set(
       existingHoldings
         .filter((h) => h.type === 'crypto' && h.symbol)
@@ -340,7 +342,7 @@ export function AddAssetScreen() {
           ? { contractAddress: h.contractAddress, network: 'ethereum' }
           : undefined;
         const parsed = createListedHoldingSchema.safeParse({
-          portfolioId: DEFAULT_PORTFOLIO_ID,
+          portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
           type: 'crypto' as const,
           name: h.name || h.symbol,
           symbol: h.symbol,
@@ -418,7 +420,7 @@ export function AddAssetScreen() {
 
   const handleSaveNonListed = async () => {
     if (!isPro) {
-      const count = await holdingRepo.countByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+      const count = await holdingRepo.countByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
       if (count >= FREE_HOLDINGS_LIMIT) {
         Alert.alert(
           'Limit reached',
@@ -434,7 +436,7 @@ export function AddAssetScreen() {
       return;
     }
     const parsed = createNonListedHoldingSchema.safeParse({
-      portfolioId: DEFAULT_PORTFOLIO_ID,
+      portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: nonListedType,
       name: name.trim(),
       manualValue: val,

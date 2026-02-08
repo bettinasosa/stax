@@ -12,7 +12,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { holdingRepo, eventRepo } from '../../data';
-import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
+import { usePortfolio } from '../portfolio/usePortfolio';
 import type { Event } from '../../data/schemas';
 import type { Holding } from '../../data/schemas';
 import { theme } from '../../utils/theme';
@@ -30,6 +30,7 @@ type AlertItem = { event: Event; holding: Holding };
 export function AlertsScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
+  const { activePortfolioId, portfolio } = usePortfolio();
   const [items, setItems] = useState<AlertItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -40,7 +41,12 @@ export function AlertsScreen() {
   }, []);
 
   const load = useCallback(async () => {
-    const holdings = await holdingRepo.getByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+    if (!activePortfolioId) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    const holdings = await holdingRepo.getByPortfolioId(db, activePortfolioId);
     const all: AlertItem[] = [];
     const now = new Date().toISOString();
     for (const holding of holdings) {
@@ -54,7 +60,7 @@ export function AlertsScreen() {
     all.sort((a, b) => a.event.date.localeCompare(b.event.date));
     setItems(all);
     setLoading(false);
-  }, [db]);
+  }, [db, activePortfolioId]);
 
   useEffect(() => {
     load();
@@ -136,6 +142,9 @@ export function AlertsScreen() {
         <RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.colors.textPrimary} />
       }
     >
+      {portfolio && (
+        <Text style={styles.portfolioLabel}>Upcoming for {portfolio.name}</Text>
+      )}
       <View style={styles.toggleRow}>
         <Text style={styles.toggleLabel}>Notifications enabled</Text>
         <Switch
@@ -160,8 +169,13 @@ export function AlertsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   content: {
-    padding: theme.layout.screenPadding,
-    paddingBottom: theme.spacing.lg,
+    padding: 16,
+    paddingBottom: 32,
+  },
+  portfolioLabel: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
   },
   toggleRow: {
     flexDirection: 'row',

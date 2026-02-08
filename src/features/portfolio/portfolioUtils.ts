@@ -201,3 +201,44 @@ export function formatHoldingValueDisplay(
   const value = holdingValueInBase(holding, priceResult, baseCurrency);
   return formatMoney(value, baseCurrency);
 }
+
+export interface AttributionRow {
+  holdingId: string;
+  holdingName: string;
+  contributionAbs: number;
+  contributionPct: number;
+  returnPct: number | null;
+}
+
+/**
+ * Performance attribution: per-holding contribution to portfolio change (ref -> now).
+ * Uses same ref as portfolioChange (previous close / 24h). Sorted by absolute contribution desc.
+ */
+export function attributionFromChange(
+  holdings: Holding[],
+  pricesBySymbol: Map<string, PriceResult>,
+  baseCurrency: string
+): { rows: AttributionRow[]; totalPnl: number } {
+  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency);
+  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency);
+  const totalPnl = totalNow - totalRef;
+
+  const rows: AttributionRow[] = holdings.map((h) => {
+    const price = h.symbol ? pricesBySymbol.get(h.symbol) ?? null : null;
+    const refVal = referenceValueInBase(h, price, baseCurrency);
+    const nowVal = holdingValueInBase(h, price, baseCurrency);
+    const contributionAbs = nowVal - refVal;
+    const returnPct = refVal > 0 ? ((nowVal - refVal) / refVal) * 100 : null;
+    const contributionPct = totalPnl !== 0 ? (contributionAbs / totalPnl) * 100 : 0;
+    return {
+      holdingId: h.id,
+      holdingName: h.name,
+      contributionAbs,
+      contributionPct,
+      returnPct,
+    };
+  });
+
+  rows.sort((a, b) => Math.abs(b.contributionAbs) - Math.abs(a.contributionAbs));
+  return { rows, totalPnl };
+}

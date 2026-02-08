@@ -18,14 +18,30 @@ import {
   portfolioChange,
   portfolioTotalRef,
   portfolioTotalBase,
+  attributionFromChange,
   type HoldingWithValue,
 } from './portfolioUtils';
 import { formatMoney } from '../../utils/money';
 import { theme } from '../../utils/theme';
-import { holdingRepo, eventRepo, portfolioValueSnapshotRepo } from '../../data';
-import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
-import type { Event, PortfolioValueSnapshot } from '../../data/schemas';
+import { holdingRepo, eventRepo } from '../../data';
+import type { Event } from '../../data/schemas';
 import type { Holding } from '../../data/schemas';
+import type { AssetType } from '../../utils/constants';
+
+/** Display label for each asset type filter. */
+const ASSET_TYPE_LABELS: Record<AssetType, string> = {
+  stock: 'Stocks',
+  etf: 'ETFs',
+  crypto: 'Crypto',
+  metal: 'Metals',
+  commodity: 'Commodities',
+  fixed_income: 'Fixed Income',
+  real_estate: 'Real Estate',
+  cash: 'Cash',
+  other: 'Other',
+};
+
+type TypeFilter = 'all' | AssetType;
 
 type UpcomingItem = { event: Event; holding: Holding };
 
@@ -36,41 +52,69 @@ type UpcomingItem = { event: Event; holding: Holding };
 export function OverviewScreen() {
   const navigation = useNavigation();
   const db = useSQLiteContext();
-  const { portfolio, holdings, pricesBySymbol, totalBase, loading, error, refresh } = usePortfolio();
+  const {
+    portfolio,
+    holdings,
+    pricesBySymbol,
+    loading,
+    error,
+    refresh,
+    activePortfolioId,
+    valueHistory,
+  } = usePortfolio();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
-  const withValues = holdingsWithValues(holdings, pricesBySymbol, baseCurrency);
-  const top3 = withValues.slice(0, 3);
-  const change = portfolioChange(holdings, pricesBySymbol, baseCurrency);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
-  const [historySnapshots, setHistorySnapshots] = useState<PortfolioValueSnapshot[]>([]);
 
-  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency);
-  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency);
+  /** Unique asset types present in the current portfolio (for filter pills). */
+  const availableTypes = useMemo(() => {
+    const types = new Set(holdings.map((h) => h.type));
+    return (Object.keys(ASSET_TYPE_LABELS) as AssetType[]).filter((t) => types.has(t));
+  }, [holdings]);
 
-  const loadHistory = useCallback(async () => {
-    const since = new Date();
-    since.setDate(since.getDate() - 7);
-    const snapshots = await portfolioValueSnapshotRepo.getByPortfolioSince(
-      db,
-      DEFAULT_PORTFOLIO_ID,
-      since.toISOString()
-    );
-    setHistorySnapshots(snapshots);
-  }, [db]);
+  /** Holdings filtered by the active type filter. */
+  const filteredHoldings = useMemo(
+    () => (typeFilter === 'all' ? holdings : holdings.filter((h) => h.type === typeFilter)),
+    [holdings, typeFilter]
+  );
+
+  const withValues = holdingsWithValues(filteredHoldings, pricesBySymbol, baseCurrency);
+  const top3 = withValues.slice(0, 3);
+  const change = portfolioChange(filteredHoldings, pricesBySymbol, baseCurrency);
+
+  const totalRef = portfolioTotalRef(filteredHoldings, pricesBySymbol, baseCurrency);
+  const totalNow = portfolioTotalBase(filteredHoldings, pricesBySymbol, baseCurrency);
+  const attribution = useMemo(
+    () => attributionFromChange(filteredHoldings, pricesBySymbol, baseCurrency),
+    [filteredHoldings, pricesBySymbol, baseCurrency]
+  );
+  const topContributors = attribution.rows.filter((r) => r.contributionAbs > 0).slice(0, 3);
+  const topDetractors = attribution.rows.filter((r) => r.contributionAbs < 0).slice(0, 3);
+  const showAttribution = totalRef > 0 && attribution.rows.some((r) => r.contributionAbs !== 0);
+
+  /** Number of days the chart covers (for the label below the chart). */
+  const chartDays = useMemo(() => {
+    if (valueHistory.length < 2) return 0;
+    const first = new Date(valueHistory[0].timestamp);
+    const last = new Date(valueHistory[valueHistory.length - 1].timestamp);
+    return Math.max(1, Math.round((last.getTime() - first.getTime()) / (1000 * 60 * 60 * 24)));
+  }, [valueHistory]);
 
   const performanceChartData = useMemo(() => {
     const points = 7;
     const labels: string[] = [];
     const values: number[] = [];
 
-    if (historySnapshots.length >= 2) {
-      for (let i = 0; i < historySnapshots.length; i++) {
-        const s = historySnapshots[i];
+    if (valueHistory.length >= 2) {
+      for (let i = 0; i < valueHistory.length; i++) {
+        const s = valueHistory[i];
         values.push(s.valueBase);
-        const d = new Date(s.timestamp);
         const isFirst = i === 0;
-        const isLast = i === historySnapshots.length - 1;
-        labels.push(isFirst ? d.toLocaleDateString(undefined, { weekday: 'short' }) : isLast ? 'Now' : '');
+        const isLast = i === valueHistory.length - 1;
+        const d = new Date(s.timestamp);
+        labels.push(
+          isFirst ? d.toLocaleDateString(undefined, { weekday: 'short' }) : isLast ? 'Now' : ''
+        );
       }
     } else {
       for (let i = 0; i <= points; i++) {
@@ -86,18 +130,34 @@ export function OverviewScreen() {
       }
     }
     const data = values.length >= 2 ? values : [totalRef, totalNow];
-    return { labels, datasets: [{ data }] };
-  }, [historySnapshots, totalRef, totalNow]);
+
+    // Add Y-axis padding so the line doesn't get clipped at the top/bottom.
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+    const pad = range * 0.12;
+    const paddedMin = min - pad;
+    const paddedMax = max + pad;
+
+    return {
+      labels,
+      datasets: [
+        { data, color: () => theme.colors.white, strokeWidth: 3 },
+        // Invisible padding dataset to expand Y range
+        { data: [paddedMin, paddedMax], color: () => 'transparent', strokeWidth: 0, withDots: false },
+      ],
+    };
+  }, [valueHistory, totalRef, totalNow]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-      loadHistory();
-    }, [refresh, loadHistory])
+    }, [refresh])
   );
 
   const loadUpcoming = useCallback(async () => {
-    const portfolioHoldings = await holdingRepo.getByPortfolioId(db, DEFAULT_PORTFOLIO_ID);
+    if (!activePortfolioId) return;
+    const portfolioHoldings = await holdingRepo.getByPortfolioId(db, activePortfolioId);
     const all: UpcomingItem[] = [];
     const now = new Date().toISOString();
     for (const holding of portfolioHoldings) {
@@ -108,7 +168,7 @@ export function OverviewScreen() {
     }
     all.sort((a, b) => a.event.date.localeCompare(b.event.date));
     setUpcoming(all.slice(0, 3));
-  }, [db]);
+  }, [db, activePortfolioId]);
 
   useEffect(() => {
     if (holdings.length > 0) loadUpcoming();
@@ -185,19 +245,41 @@ export function OverviewScreen() {
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={async () => {
-              await refresh();
-              loadUpcoming();
-              loadHistory();
-            }}
-            tintColor={theme.colors.textPrimary}
-          />
+          <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
         }
     >
+      {/* ── Type filter pills ── */}
+      {availableTypes.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          style={styles.filterScroll}
+        >
+          <TouchableOpacity
+            style={[styles.filterPill, typeFilter === 'all' && styles.filterPillActive]}
+            onPress={() => setTypeFilter('all')}
+          >
+            <Text style={[styles.filterPillText, typeFilter === 'all' && styles.filterPillTextActive]}>
+              All
+            </Text>
+          </TouchableOpacity>
+          {availableTypes.map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.filterPill, typeFilter === t && styles.filterPillActive]}
+              onPress={() => setTypeFilter(t)}
+            >
+              <Text style={[styles.filterPillText, typeFilter === t && styles.filterPillTextActive]}>
+                {ASSET_TYPE_LABELS[t]}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
       <View style={styles.heroSection}>
-        <Text style={styles.totalValue}>{formatMoney(totalBase, baseCurrency)}</Text>
+        <Text style={styles.totalValue}>{formatMoney(totalNow, baseCurrency)}</Text>
         {changeAmount != null && changePct != null && (
           <View style={styles.changeRow}>
             <Text style={[styles.changeAmount, { color: changeColor }]}>
@@ -210,9 +292,8 @@ export function OverviewScreen() {
         )}
       </View>
 
-      {totalRef >= 0 && (
+      {totalRef >= 0 && typeFilter === 'all' && (
         <View style={styles.chartSection}>
-          <Text style={styles.chartLabel}>Last 7 days</Text>
           <LineChart
             data={performanceChartData}
             width={screenWidth}
@@ -223,7 +304,7 @@ export function OverviewScreen() {
               backgroundGradientTo: 'transparent',
               decimalPlaces: 0,
               color: () => theme.colors.white,
-              strokeWidth: 4,
+              strokeWidth: 3,
               linejoinType: 'round',
               labelColor: () => theme.colors.textSecondary,
               propsForDots: { r: 0 },
@@ -238,6 +319,48 @@ export function OverviewScreen() {
             fromZero={false}
             style={styles.lineChart}
           />
+          <Text style={styles.chartCaption}>
+            {chartDays > 0
+              ? `Showing ${chartDays} day${chartDays === 1 ? '' : 's'} of portfolio history`
+              : 'Estimated trend — more data points collected on each refresh'}
+          </Text>
+        </View>
+      )}
+
+      {showAttribution && (topContributors.length > 0 || topDetractors.length > 0) && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Performance attribution</Text>
+          <Text style={styles.attributionSubtitle}>
+            Contribution to portfolio change (vs previous close / 24h)
+          </Text>
+          {topContributors.length > 0 && (
+            <View style={styles.attributionBlock}>
+              <Text style={styles.attributionLabel}>Top contributors</Text>
+              {topContributors.map((r) => (
+                <View key={r.holdingId} style={styles.attributionRow}>
+                  <Text style={styles.attributionName} numberOfLines={1}>{r.holdingName}</Text>
+                  <Text style={styles.attributionPositive}>
+                    +{formatMoney(r.contributionAbs, baseCurrency)}
+                    {r.returnPct != null ? ` (${r.returnPct >= 0 ? '+' : ''}${r.returnPct.toFixed(2)}%)` : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {topDetractors.length > 0 && (
+            <View style={styles.attributionBlock}>
+              <Text style={styles.attributionLabel}>Top detractors</Text>
+              {topDetractors.map((r) => (
+                <View key={r.holdingId} style={styles.attributionRow}>
+                  <Text style={styles.attributionName} numberOfLines={1}>{r.holdingName}</Text>
+                  <Text style={styles.attributionNegative}>
+                    {formatMoney(r.contributionAbs, baseCurrency)}
+                    {r.returnPct != null ? ` (${r.returnPct.toFixed(2)}%)` : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       )}
 
@@ -371,11 +494,30 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     marginHorizontal: -theme.layout.screenPadding,
   },
-  chartLabel: {
-    ...theme.typography.caption,
+  filterScroll: {
+    marginBottom: theme.spacing.sm,
+    flexGrow: 0,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.xs,
+    paddingHorizontal: 2,
+  },
+  filterPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surface,
+  },
+  filterPillActive: {
+    backgroundColor: theme.colors.accent,
+  },
+  filterPillText: {
+    ...theme.typography.captionMedium,
     color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
-    paddingHorizontal: theme.layout.screenPadding,
+  },
+  filterPillTextActive: {
+    color: theme.colors.white,
   },
   lineChart: { borderRadius: 0, paddingRight: 0, paddingLeft: 0 },
   section: { marginBottom: theme.spacing.sm },
@@ -388,6 +530,40 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...theme.typography.bodySemi,
     color: theme.colors.textPrimary,
+  },
+  attributionSubtitle: {
+    ...theme.typography.small,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
+  },
+  attributionBlock: {
+    marginBottom: theme.spacing.sm,
+  },
+  attributionLabel: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
+  },
+  attributionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: theme.spacing.xs,
+  },
+  attributionName: {
+    ...theme.typography.caption,
+    color: theme.colors.textPrimary,
+    flex: 1,
+    marginRight: theme.spacing.xs,
+  },
+  attributionPositive: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.positive,
+  },
+  attributionNegative: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.negative,
   },
   seeAllText: {
     ...theme.typography.captionMedium,

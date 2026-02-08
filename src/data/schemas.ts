@@ -14,6 +14,7 @@ export const portfolioSchema = z
     name: z.string().min(1),
     baseCurrency: z.string().length(3),
     createdAt: z.string().datetime(),
+    archivedAt: z.string().datetime().nullish(),
   })
   .strict();
 

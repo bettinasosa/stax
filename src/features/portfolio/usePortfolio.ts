@@ -1,6 +1,10 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
 import { portfolioRepo, holdingRepo, pricePointRepo, portfolioValueSnapshotRepo } from '../../data';
+import {
+  getActivePortfolioId,
+  setActivePortfolioId as persistActivePortfolioId,
+} from '../../data/activePortfolioStorage';
 import type { Portfolio, Holding } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { refreshPrices } from '../../services/pricing';
@@ -17,7 +21,13 @@ export interface PortfolioState {
   error: string | null;
 }
 
-function pricePointToResult(pp: { price: number; currency: string; symbol: string; previousClose?: number | null; changePercent?: number | null }): PriceResult | null {
+function pricePointToResult(pp: {
+  price: number;
+  currency: string;
+  symbol: string;
+  previousClose?: number | null;
+  changePercent?: number | null;
+}): PriceResult | null {
   if (typeof pp.price !== 'number' || !Number.isFinite(pp.price) || pp.price <= 0) return null;
   return {
     price: pp.price,
@@ -29,30 +39,53 @@ function pricePointToResult(pp: { price: number; currency: string; symbol: strin
 }
 
 /**
- * Load default portfolio, its holdings, and latest prices. Shows cached prices first, then refreshes in background so the UI stays stable.
+ * Resolve the active portfolio id: from storage, or fallback to default/first active.
+ */
+async function resolveActivePortfolioId(db: import('expo-sqlite').SQLiteDatabase): Promise<string> {
+  const stored = await getActivePortfolioId();
+  const list = await portfolioRepo.listActive(db);
+  if (stored && list.some((p) => p.id === stored)) return stored;
+  const first = list.find((p) => p.id === DEFAULT_PORTFOLIO_ID) ?? list[0];
+  const fallback = first?.id ?? DEFAULT_PORTFOLIO_ID;
+  await persistActivePortfolioId(fallback);
+  return fallback;
+}
+
+/**
+ * Load active portfolio, its holdings, and latest prices. Shows cached prices first, then refreshes in background.
+ * Exposes multi-portfolio APIs: switch portfolio, list, create, rename, archive.
  */
 export function usePortfolio() {
   const db = useSQLiteContext();
+  const dbRef = useRef(db);
+  dbRef.current = db;
+
+  const [activePortfolioId, setActivePortfolioIdState] = useState<string | null>(null);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [pricesBySymbol, setPricesBySymbol] = useState<Map<string, PriceResult>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [valueHistory, setValueHistory] = useState<
+    { timestamp: string; valueBase: number; baseCurrency: string }[]
+  >([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (portfolioId: string) => {
     try {
       setLoading(true);
       setError(null);
-      const p = await portfolioRepo.getById(db, DEFAULT_PORTFOLIO_ID);
-      if (!p) {
+      const p = await portfolioRepo.getById(dbRef.current, portfolioId);
+      if (!p || p.archivedAt) {
         setPortfolio(null);
         setHoldings([]);
         setPricesBySymbol(new Map());
+        setValueHistory([]);
         setLoading(false);
         return;
       }
       setPortfolio(p);
-      const h = await holdingRepo.getByPortfolioId(db, p.id);
+      const h = await holdingRepo.getByPortfolioId(dbRef.current, p.id);
       setHoldings(h);
 
       const listed = h.filter(
@@ -61,8 +94,7 @@ export function usePortfolio() {
       );
       const symbols = Array.from(new Set(listed.map((x) => x.symbol)));
 
-      // Show cached prices immediately so UI doesn't flash or drop
-      const cachedMap = await pricePointRepo.getLatestBySymbols(db, symbols);
+      const cachedMap = await pricePointRepo.getLatestBySymbols(dbRef.current, symbols);
       const cachedResult = new Map<string, PriceResult>();
       Array.from(cachedMap.entries()).forEach(([sym, pp]) => {
         const pr = pricePointToResult(pp);
@@ -74,14 +106,14 @@ export function usePortfolio() {
       let snapshotMap = cachedResult;
       if (listed.length > 0) {
         await refreshPrices(
-          db,
+          dbRef.current,
           listed.map((x) => ({
             symbol: x.symbol,
             type: x.type as AssetTypeListed,
             metadata: x.metadata ?? undefined,
           }))
         );
-        const priceMapAfter = await pricePointRepo.getLatestBySymbols(db, symbols);
+        const priceMapAfter = await pricePointRepo.getLatestBySymbols(dbRef.current, symbols);
         const resultMap = new Map<string, PriceResult>();
         Array.from(priceMapAfter.entries()).forEach(([sym, pp]) => {
           const pr = pricePointToResult(pp);
@@ -95,22 +127,102 @@ export function usePortfolio() {
         snapshotMap = resultMap;
       }
       const totalBaseNow = portfolioTotalBase(h, snapshotMap, p.baseCurrency);
-      await portfolioValueSnapshotRepo.insert(db, {
+      await portfolioValueSnapshotRepo.insert(dbRef.current, {
         portfolioId: p.id,
         timestamp: new Date().toISOString(),
         valueBase: totalBaseNow,
         baseCurrency: p.baseCurrency,
       });
+
+      const since = new Date();
+      since.setDate(since.getDate() - 90);
+      const snapshots = await portfolioValueSnapshotRepo.getByPortfolioSince(
+        dbRef.current,
+        p.id,
+        since.toISOString()
+      );
+      setValueHistory(
+        snapshots.map((s) => ({
+          timestamp: s.timestamp,
+          valueBase: s.valueBase,
+          baseCurrency: s.baseCurrency,
+        }))
+      );
+
+      const activeList = await portfolioRepo.listActive(dbRef.current);
+      setPortfolios(activeList);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load portfolio');
     } finally {
       setLoading(false);
     }
-  }, [db]);
+  }, []);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      const id = await resolveActivePortfolioId(dbRef.current);
+      if (cancelled) return;
+      setActivePortfolioIdState(id);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activePortfolioId) loadRef.current(activePortfolioId);
+  }, [activePortfolioId]);
+
+  const switchPortfolio = useCallback(async (id: string) => {
+    await persistActivePortfolioId(id);
+    setActivePortfolioIdState(id);
+  }, []);
+
+  const createPortfolio = useCallback(async (name: string, baseCurrency: string) => {
+    const created = await portfolioRepo.create(dbRef.current, { name, baseCurrency });
+    const list = await portfolioRepo.listActive(dbRef.current);
+    setPortfolios(list);
+    await persistActivePortfolioId(created.id);
+    setActivePortfolioIdState(created.id);
+    return created;
+  }, []);
+
+  const renamePortfolio = useCallback(
+    async (id: string, name: string) => {
+      const updated = await portfolioRepo.update(dbRef.current, id, { name });
+      if (updated) {
+        const list = await portfolioRepo.listActive(dbRef.current);
+        setPortfolios(list);
+        if (id === activePortfolioId) setPortfolio(updated);
+      }
+      return updated;
+    },
+    [activePortfolioId]
+  );
+
+  const archivePortfolio = useCallback(
+    async (id: string) => {
+      const archived = await portfolioRepo.archive(dbRef.current, id);
+      if (!archived) return null;
+      const list = await portfolioRepo.listActive(dbRef.current);
+      setPortfolios(list);
+      if (id === activePortfolioId) {
+        const next = list[0]?.id ?? DEFAULT_PORTFOLIO_ID;
+        await persistActivePortfolioId(next);
+        setActivePortfolioIdState(next);
+      }
+      return archived;
+    },
+    [activePortfolioId]
+  );
+
+  const refresh = useCallback(() => {
+    if (activePortfolioId) load(activePortfolioId);
+  }, [activePortfolioId, load]);
 
   const totalBase = portfolio
     ? portfolioTotalBase(holdings, pricesBySymbol, portfolio.baseCurrency)
@@ -123,6 +235,13 @@ export function usePortfolio() {
     totalBase,
     loading,
     error,
-    refresh: load,
+    refresh,
+    activePortfolioId,
+    switchPortfolio,
+    portfolios,
+    createPortfolio,
+    renamePortfolio,
+    archivePortfolio,
+    valueHistory,
   };
 }

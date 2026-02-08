@@ -20,8 +20,10 @@ import {
 } from '../../services/notifications';
 import { trackNotificationEnabled } from '../../services/analytics';
 import { SUPPORTED_PRICE_FEEDS } from '../../services/supportedFeeds';
-import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
+import { usePortfolio } from '../portfolio/usePortfolio';
 import { isSupabaseConfigured } from '../../services/supabase';
+import { useUpcomingAlerts } from '../alerts/useUpcomingAlerts';
+import { AlertsList } from '../alerts/AlertsList';
 import { theme } from '../../utils/theme';
 
 /**
@@ -30,6 +32,7 @@ import { theme } from '../../utils/theme';
 export function SettingsScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
+  const { portfolio, activePortfolioId, refresh } = usePortfolio();
   const { restorePurchases } = useEntitlements();
   const [baseCurrency, setBaseCurrency] = useState('USD');
   const [loading, setLoading] = useState(true);
@@ -45,21 +48,26 @@ export function SettingsScreen() {
   const [dbRaw, setDbRaw] = useState<{ portfolio: unknown[]; holding: unknown[]; event: unknown[] } | null>(null);
   const [clearing, setClearing] = useState(false);
   const { signOut } = useAuth();
+  const { items: upcomingAlerts, loading: alertsLoading } = useUpcomingAlerts(activePortfolioId);
 
   useEffect(() => {
+    if (!portfolio || !activePortfolioId) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
-      const p = await portfolioRepo.getById(db, DEFAULT_PORTFOLIO_ID);
-      if (!cancelled && p) {
-        setBaseCurrency(p.baseCurrency);
-        setEditCurrency(p.baseCurrency);
-        const holdingsCount = await holdingRepo.countByPortfolioId(db, p.id);
-        const allHoldings = await holdingRepo.getByPortfolioId(db, p.id);
-        let eventsTotal = 0;
-        for (const h of allHoldings) {
-          const evs = await eventRepo.getByHoldingId(db, h.id);
-          eventsTotal += evs.length;
-        }
+      const p = portfolio;
+      setBaseCurrency(p.baseCurrency);
+      setEditCurrency(p.baseCurrency);
+      const holdingsCount = await holdingRepo.countByPortfolioId(db, p.id);
+      const allHoldings = await holdingRepo.getByPortfolioId(db, p.id);
+      let eventsTotal = 0;
+      for (const h of allHoldings) {
+        const evs = await eventRepo.getByHoldingId(db, h.id);
+        eventsTotal += evs.length;
+      }
+      if (!cancelled) {
         setDbSummary({
           portfolioName: p.name,
           holdingsCount,
@@ -71,7 +79,7 @@ export function SettingsScreen() {
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [db]);
+  }, [db, portfolio, activePortfolioId]);
 
   const handleEnableNotifications = async () => {
     const granted = await requestNotificationPermission();
@@ -136,15 +144,24 @@ export function SettingsScreen() {
       Alert.alert('Invalid', 'Currency must be 3 letters (e.g. USD).');
       return;
     }
+    if (!activePortfolioId) return;
     setSavingCurrency(true);
     try {
-      await portfolioRepo.update(db, DEFAULT_PORTFOLIO_ID, { baseCurrency: cur });
+      await portfolioRepo.update(db, activePortfolioId, { baseCurrency: cur });
       setBaseCurrency(cur);
+      refresh();
     } catch {
       Alert.alert('Error', 'Failed to update base currency.');
     } finally {
       setSavingCurrency(false);
     }
+  };
+
+  const handlePressAlert = (holdingId: string, _eventId: string) => {
+    (navigation as { navigate: (s: string, p: object) => void }).navigate('Holdings', {
+      screen: 'HoldingDetail',
+      params: { holdingId },
+    });
   };
 
   if (loading) {
@@ -182,6 +199,12 @@ export function SettingsScreen() {
             onPress={() => (navigation as { navigate: (name: string) => void }).navigate('ImportCSV')}
           >
             <Text style={styles.buttonSecondaryText}>Import from CSV</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.buttonSecondary}
+            onPress={() => (navigation as { navigate: (name: string) => void }).navigate('Portfolios')}
+          >
+            <Text style={styles.buttonSecondaryText}>Portfolios</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -227,6 +250,35 @@ export function SettingsScreen() {
             <Text style={styles.buttonSecondaryText}>Enable notifications</Text>
           </TouchableOpacity>
         )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Upcoming events & reminders</Text>
+        <Text style={styles.muted}>
+          {upcomingAlerts.length === 0
+            ? 'No upcoming alerts for your holdings'
+            : `${upcomingAlerts.length} upcoming event${upcomingAlerts.length !== 1 ? 's' : ''}`}
+        </Text>
+        {upcomingAlerts.length > 0 && (
+          <View style={styles.alertsContainer}>
+            <AlertsList
+              items={upcomingAlerts.slice(0, 5)}
+              onPressAlert={handlePressAlert}
+              loading={alertsLoading}
+            />
+            {upcomingAlerts.length > 5 && (
+              <Text style={styles.muted}>
+                Showing 5 of {upcomingAlerts.length} alerts. View holdings for more details.
+              </Text>
+            )}
+          </View>
+        )}
+        <TouchableOpacity
+          style={styles.buttonSecondary}
+          onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Holdings')}
+        >
+          <Text style={styles.buttonSecondaryText}>Manage events in Holdings</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -399,5 +451,9 @@ const styles = StyleSheet.create({
   buttonDangerText: {
     color: theme.colors.negative,
     ...theme.typography.body,
+  },
+  alertsContainer: {
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
   },
 });

@@ -8,6 +8,7 @@ import { SignUpScreen } from '../features/auth/SignUpScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { ImportCSVScreen } from '../features/settings/ImportCSVScreen';
+import { PortfoliosScreen } from '../features/portfolio/PortfoliosScreen';
 import { AppNavigation } from './navigation';
 import { theme } from '../utils/theme';
 
@@ -88,6 +89,11 @@ export function RootNavigator() {
           name="ImportCSV"
           component={ImportCSVScreen}
           options={{ title: 'Import from CSV' }}
+        />
+        <Stack.Screen
+          name="Portfolios"
+          component={PortfoliosScreen}
+          options={{ title: 'Portfolios' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

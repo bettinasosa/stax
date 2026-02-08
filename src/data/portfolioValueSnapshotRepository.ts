@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { portfolioValueSnapshotSchema, type PortfolioValueSnapshot } from './schemas';
 import { generateId } from '../utils/uuid';
 
-const KEEP_DAYS = 30;
+const KEEP_DAYS = 90;
 
 /**
  * Insert a portfolio value snapshot (e.g. on refresh). Prunes snapshots older than KEEP_DAYS.

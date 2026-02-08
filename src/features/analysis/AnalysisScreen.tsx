@@ -107,6 +107,9 @@ export function AnalysisScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {portfolio && (
+        <Text style={styles.portfolioLabel}>Insights for {portfolio.name}</Text>
+      )}
       <View style={styles.card}>
         <Text style={styles.scoreLabel}>Stax Score</Text>
         <Text style={styles.scoreValue}>{score}</Text>
@@ -168,6 +171,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   empty: { ...theme.typography.body, color: theme.colors.textSecondary },
+  portfolioLabel: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
+  },
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.layout.cardRadius,
