@@ -1,4 +1,6 @@
 import type { HoldingWithValue } from '../portfolio/portfolioUtils';
+import type { PriceResult } from '../../services/pricing';
+import { getRateToBase } from '../../utils/money';
 import {
   STAX_SCORE_TOP_HOLDING_THRESHOLD,
   STAX_SCORE_TOP3_THRESHOLD,
@@ -197,4 +199,233 @@ export function exposureBreakdown(withValues: HoldingWithValue[]): ExposureSlice
     slices.push({ label: k, percent: (v / total) * 100, type: 'sector' });
   }
   return slices.sort((a, b) => b.percent - a.percent);
+}
+
+// ── Performance analysis ────────────────────────────────────────────────────
+
+export interface PerfRow {
+  holdingId: string;
+  name: string;
+  returnPct: number;
+}
+
+export interface PnlRow {
+  holdingId: string;
+  name: string;
+  costBasis: number;
+  currentValue: number;
+  pnl: number;
+  pnlPct: number;
+}
+
+export interface PerformanceResult {
+  bestPerformers: PerfRow[];
+  worstPerformers: PerfRow[];
+  unrealizedPnl: PnlRow[];
+  totalUnrealizedPnl: number;
+  totalCostBasis: number;
+  /** Percentage of portfolio value covered by cost basis data. */
+  coveragePercent: number;
+}
+
+/**
+ * Compute performance data from holdings and prices.
+ * Best/worst performers by daily return %. Unrealized P&L from cost basis.
+ */
+export function computePerformance(
+  withValues: HoldingWithValue[],
+  pricesBySymbol: Map<string, PriceResult>,
+  baseCurrency: string
+): PerformanceResult {
+  const perfRows: PerfRow[] = [];
+  const pnlRows: PnlRow[] = [];
+  let totalCostBasis = 0;
+  let coveredValue = 0;
+  const totalPortfolioValue = withValues.reduce((s, x) => s + x.valueBase, 0);
+
+  for (const { holding, valueBase } of withValues) {
+    // Daily return %
+    if (holding.symbol) {
+      const pr = pricesBySymbol.get(holding.symbol);
+      if (pr) {
+        let returnPct: number | null = null;
+        if (pr.changePercent != null) {
+          returnPct = pr.changePercent;
+        } else if (pr.previousClose != null && pr.previousClose > 0) {
+          returnPct = ((pr.price - pr.previousClose) / pr.previousClose) * 100;
+        }
+        if (returnPct != null) {
+          perfRows.push({ holdingId: holding.id, name: holding.name, returnPct });
+        }
+      }
+    }
+
+    // Unrealized P&L
+    if (
+      holding.costBasis != null &&
+      holding.costBasis > 0 &&
+      holding.quantity != null &&
+      holding.quantity > 0
+    ) {
+      const cbRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency);
+      const costInBase = holding.costBasis * cbRate;
+      totalCostBasis += costInBase;
+      coveredValue += valueBase;
+      const pnl = valueBase - costInBase;
+      const pnlPct = costInBase > 0 ? (pnl / costInBase) * 100 : 0;
+      pnlRows.push({
+        holdingId: holding.id,
+        name: holding.name,
+        costBasis: costInBase,
+        currentValue: valueBase,
+        pnl,
+        pnlPct,
+      });
+    }
+  }
+
+  perfRows.sort((a, b) => b.returnPct - a.returnPct);
+  pnlRows.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+
+  const totalUnrealizedPnl = pnlRows.reduce((s, r) => s + r.pnl, 0);
+  const coveragePercent = totalPortfolioValue > 0 ? (coveredValue / totalPortfolioValue) * 100 : 0;
+
+  return {
+    bestPerformers: perfRows.filter((r) => r.returnPct > 0).slice(0, 3),
+    worstPerformers: perfRows
+      .filter((r) => r.returnPct < 0)
+      .sort((a, b) => a.returnPct - b.returnPct)
+      .slice(0, 3),
+    unrealizedPnl: pnlRows,
+    totalUnrealizedPnl,
+    totalCostBasis,
+    coveragePercent,
+  };
+}
+
+// ── Rich insights ───────────────────────────────────────────────────────────
+
+export interface RichInsight {
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  body: string;
+  category: 'concentration' | 'diversification' | 'performance' | 'general';
+}
+
+/**
+ * Generate structured, actionable insights from concentration, score, performance, and holdings.
+ */
+export function generateRichInsights(
+  concentration: ConcentrationMetrics,
+  score: number,
+  withValues: HoldingWithValue[],
+  performance?: PerformanceResult
+): RichInsight[] {
+  const insights: RichInsight[] = [];
+
+  // Concentration warnings
+  if (concentration.topHoldingPercent > STAX_SCORE_TOP_HOLDING_THRESHOLD) {
+    insights.push({
+      severity: concentration.topHoldingPercent > 50 ? 'critical' : 'warning',
+      title: `Top holding is ${concentration.topHoldingPercent.toFixed(1)}%`,
+      body: 'Consider reducing your largest position to lower single-asset risk.',
+      category: 'concentration',
+    });
+  }
+  if (concentration.top3CombinedPercent > STAX_SCORE_TOP3_THRESHOLD) {
+    insights.push({
+      severity: concentration.top3CombinedPercent > 80 ? 'critical' : 'warning',
+      title: `Top 3 make up ${concentration.top3CombinedPercent.toFixed(1)}%`,
+      body: 'Your portfolio is heavily concentrated in a few holdings.',
+      category: 'concentration',
+    });
+  }
+
+  // Diversification
+  const assetTypes = new Set(withValues.map((x) => x.holding.type));
+  if (assetTypes.size <= 2 && withValues.length > 3) {
+    insights.push({
+      severity: 'warning',
+      title: `Only ${assetTypes.size} asset type${assetTypes.size === 1 ? '' : 's'}`,
+      body: 'Consider adding different asset classes for better diversification.',
+      category: 'diversification',
+    });
+  }
+
+  // Crypto volatility
+  const cryptoPercent = withValues
+    .filter((x) => x.holding.type === 'crypto')
+    .reduce((s, x) => s + x.weightPercent, 0);
+  if (cryptoPercent > STAX_SCORE_CRYPTO_PENALTY_THRESHOLD) {
+    insights.push({
+      severity: 'warning',
+      title: `Crypto is ${cryptoPercent.toFixed(1)}% of portfolio`,
+      body: 'High crypto allocation increases volatility. Consider balancing with stable assets.',
+      category: 'diversification',
+    });
+  }
+
+  // Metadata gaps
+  const stocksWithoutMeta = withValues.filter(
+    (x) =>
+      ['stock', 'etf'].includes(x.holding.type) &&
+      !(x.holding.metadata as { country?: string } | undefined)?.country
+  );
+  if (stocksWithoutMeta.length > 0) {
+    insights.push({
+      severity: 'info',
+      title: `${stocksWithoutMeta.length} holding${stocksWithoutMeta.length === 1 ? '' : 's'} missing metadata`,
+      body: 'Add country and sector info to unlock deeper diversification analysis.',
+      category: 'general',
+    });
+  }
+
+  // Performance insights
+  if (performance) {
+    if (performance.bestPerformers.length > 0) {
+      const top = performance.bestPerformers[0];
+      insights.push({
+        severity: 'info',
+        title: `${top.name} up ${top.returnPct.toFixed(2)}% today`,
+        body: 'Your top performer is contributing positively to your portfolio.',
+        category: 'performance',
+      });
+    }
+    if (performance.worstPerformers.length > 0) {
+      const worst = performance.worstPerformers[0];
+      insights.push({
+        severity: Math.abs(worst.returnPct) > 5 ? 'warning' : 'info',
+        title: `${worst.name} down ${Math.abs(worst.returnPct).toFixed(2)}% today`,
+        body: 'Monitor this position — consider if it still fits your strategy.',
+        category: 'performance',
+      });
+    }
+    if (performance.coveragePercent < 50 && withValues.length > 2) {
+      insights.push({
+        severity: 'info',
+        title: 'Cost basis data is incomplete',
+        body: 'Add cost basis to your holdings to track real returns and unrealized P&L.',
+        category: 'general',
+      });
+    }
+  }
+
+  // Positive reinforcement
+  if (score >= 80) {
+    insights.push({
+      severity: 'info',
+      title: 'Strong diversification',
+      body: `Your portfolio is spread across ${assetTypes.size} asset types. Keep it up!`,
+      category: 'general',
+    });
+  } else if (score >= 50) {
+    insights.push({
+      severity: 'info',
+      title: 'Moderate diversification',
+      body: 'A few tweaks could improve your portfolio balance.',
+      category: 'general',
+    });
+  }
+
+  return insights.slice(0, 6);
 }

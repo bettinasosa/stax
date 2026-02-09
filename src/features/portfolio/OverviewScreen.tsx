@@ -416,9 +416,9 @@ export function OverviewScreen() {
           ))}
           <TouchableOpacity
             style={styles.viewAllLink}
-            onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Alerts')}
+            onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Settings')}
           >
-            <Text style={styles.viewAllText}>View all</Text>
+            <Text style={styles.viewAllText}>View all in Settings</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -520,6 +520,13 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
   },
   lineChart: { borderRadius: 0, paddingRight: 0, paddingLeft: 0 },
+  chartCaption: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    textAlign: 'center',
+    marginTop: theme.spacing.xs,
+    paddingHorizontal: theme.layout.screenPadding,
+  },
   section: { marginBottom: theme.spacing.sm },
   sectionHeader: {
     flexDirection: 'row',

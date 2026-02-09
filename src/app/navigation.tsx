@@ -7,7 +7,7 @@ import { HoldingsScreen } from '../features/portfolio/HoldingsScreen';
 import { AddAssetScreen } from '../features/asset/AddAssetScreen';
 import { HoldingDetailScreen } from '../features/asset/HoldingDetailScreen';
 import { AddEventScreen } from '../features/asset/AddEventScreen';
-import { AlertsScreen } from '../features/alerts/AlertsScreen';
+import { ChartsScreen } from '../features/charts/ChartsScreen';
 import { AnalysisScreen } from '../features/analysis/AnalysisScreen';
 import { theme } from '../utils/theme';
 import { ProfileHeaderButton } from './ProfileHeaderButton';
@@ -26,7 +26,7 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
 const tabIcons = {
   Overview: (props: { focused: boolean }) => <TabIcon emoji="🏠" focused={props.focused} />,
   Holdings: (props: { focused: boolean }) => <TabIcon emoji="📋" focused={props.focused} />,
-  Alerts: (props: { focused: boolean }) => <TabIcon emoji="🔔" focused={props.focused} />,
+  Charts: (props: { focused: boolean }) => <TabIcon emoji="📈" focused={props.focused} />,
   Insights: (props: { focused: boolean }) => <TabIcon emoji="📊" focused={props.focused} />,
 };
 const Stack = createNativeStackNavigator();
@@ -37,6 +37,33 @@ const screenOptions = {
   headerShadowVisible: false,
   contentStyle: { backgroundColor: theme.colors.background },
 };
+
+function ChartsStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: true,
+        ...screenOptions,
+        headerRight: () => <ProfileHeaderButton />,
+      }}
+    >
+      <Stack.Screen
+        name="ChartsMain"
+        component={ChartsScreen}
+        options={{
+          title: 'Charts',
+          headerLeft: () => <PortfolioSelectorHeader />,
+        }}
+      />
+      <Stack.Screen
+        name="HoldingDetail"
+        component={HoldingDetailScreen}
+        options={{ title: 'Holding' }}
+      />
+      <Stack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Add event' }} />
+    </Stack.Navigator>
+  );
+}
 
 function HoldingsStack() {
   return (
@@ -73,7 +100,7 @@ function HoldingsStack() {
 }
 
 /**
- * Main tab navigator: Overview, Holdings, Alerts, Insights.
+ * Main tab navigator: Overview, Holdings, Charts, Insights.
  * Settings is reached via profile icon in header (see RootNavigator).
  */
 export function AppNavigation() {
@@ -111,11 +138,12 @@ export function AppNavigation() {
         }}
       />
       <Tab.Screen
-        name="Alerts"
-        component={AlertsScreen}
+        name="Charts"
+        component={ChartsStack}
         options={{
-          title: 'Alerts',
-          tabBarIcon: tabIcons.Alerts,
+          title: 'Charts',
+          headerShown: false,
+          tabBarIcon: tabIcons.Charts,
         }}
       />
       <Tab.Screen

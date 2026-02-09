@@ -20,14 +20,30 @@ export const portfolioSchema = z
 
 export type Portfolio = z.infer<typeof portfolioSchema>;
 
-/** Holding metadata (country, sector, provider ids, token contract data). */
+/** Holding metadata (country, sector, provider ids, token contract data, fixed income, real estate). */
 export const holdingMetadataSchema = z
   .object({
+    // General fields (listed assets)
     country: z.string().optional(),
     sector: z.string().optional(),
     providerId: z.string().optional(),
     contractAddress: z.string().optional(),
     network: z.string().optional(),
+
+    // Fixed Income fields
+    couponRate: z.number().nonnegative().optional(),      // Annual coupon rate as percentage (e.g., 4.5)
+    issuer: z.string().optional(),                        // Bond issuer name (e.g., "US Treasury", "Apple Inc.")
+    maturityDate: z.string().datetime().optional(),       // ISO date string
+    yieldToMaturity: z.number().optional(),               // YTM as percentage
+    creditRating: z.string().optional(),                  // Credit rating (e.g., "AAA", "BB+", "Baa2")
+    faceValue: z.number().nonnegative().optional(),       // Par value
+
+    // Real Estate fields
+    address: z.string().optional(),                       // Property address
+    propertyType: z.string().optional(),                  // "Residential", "Commercial", "Industrial", "REIT"
+    rentalIncome: z.number().nonnegative().optional(),    // Monthly or annual rental income
+    purchasePrice: z.number().nonnegative().optional(),   // Original purchase price
+    purchaseDate: z.string().datetime().optional(),       // ISO date string
   })
   .strict()
   .optional();
@@ -129,6 +145,7 @@ export const createNonListedHoldingSchema = z
     manualValue: z.number().nonnegative(),
     currency: z.string().min(1),
     note: z.string().optional(),
+    metadata: holdingMetadataSchema,
   })
   .strict();
 

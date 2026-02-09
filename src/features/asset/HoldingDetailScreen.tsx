@@ -213,6 +213,94 @@ export function HoldingDetailScreen() {
         })()}
       </View>
 
+      {holding.type === 'fixed_income' && holding.metadata && (
+        <View style={styles.metadataSection}>
+          <Text style={styles.metadataTitle}>Fixed Income Details</Text>
+          {holding.metadata.issuer && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Issuer:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.issuer}</Text>
+            </View>
+          )}
+          {holding.metadata.couponRate != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Coupon Rate:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.couponRate}%</Text>
+            </View>
+          )}
+          {holding.metadata.maturityDate && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Maturity Date:</Text>
+              <Text style={styles.metadataValue}>
+                {new Date(holding.metadata.maturityDate).toLocaleDateString()}
+              </Text>
+            </View>
+          )}
+          {holding.metadata.yieldToMaturity != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Yield to Maturity:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.yieldToMaturity}%</Text>
+            </View>
+          )}
+          {holding.metadata.creditRating && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Credit Rating:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.creditRating}</Text>
+            </View>
+          )}
+          {holding.metadata.faceValue != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Face Value:</Text>
+              <Text style={styles.metadataValue}>
+                {formatMoney(holding.metadata.faceValue, holding.currency)}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {holding.type === 'real_estate' && holding.metadata && (
+        <View style={styles.metadataSection}>
+          <Text style={styles.metadataTitle}>Real Estate Details</Text>
+          {holding.metadata.address && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Address:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.address}</Text>
+            </View>
+          )}
+          {holding.metadata.propertyType && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Property Type:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.propertyType}</Text>
+            </View>
+          )}
+          {holding.metadata.purchasePrice != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Purchase Price:</Text>
+              <Text style={styles.metadataValue}>
+                {formatMoney(holding.metadata.purchasePrice, holding.currency)}
+              </Text>
+            </View>
+          )}
+          {holding.metadata.purchaseDate && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Purchase Date:</Text>
+              <Text style={styles.metadataValue}>
+                {new Date(holding.metadata.purchaseDate).toLocaleDateString()}
+              </Text>
+            </View>
+          )}
+          {holding.metadata.rentalIncome != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Monthly Rent:</Text>
+              <Text style={styles.metadataValue}>
+                {formatMoney(holding.metadata.rentalIncome, holding.currency)}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Edit holding</Text>
         <Text style={styles.label}>Name</Text>
@@ -452,5 +540,32 @@ const styles = StyleSheet.create({
   backBtnText: {
     ...theme.typography.body,
     color: theme.colors.accent,
+  },
+  metadataSection: {
+    marginBottom: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  metadataTitle: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  metadataRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  metadataLabel: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+    flex: 1,
+  },
+  metadataValue: {
+    ...theme.typography.caption,
+    color: theme.colors.textPrimary,
+    flex: 2,
+    textAlign: 'right',
   },
 });

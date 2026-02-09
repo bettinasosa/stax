@@ -4,8 +4,11 @@ import {
   computeStaxScore,
   generateInsights,
   exposureBreakdown,
+  computePerformance,
+  generateRichInsights,
 } from './analysisUtils';
 import type { HoldingWithValue } from '../portfolio/portfolioUtils';
+import type { PriceResult } from '../../services/pricing';
 
 function makeHoldingWithValue(
   overrides: Partial<HoldingWithValue['holding']> & {
@@ -118,5 +121,122 @@ describe('exposureBreakdown', () => {
     expect(slices.length).toBeGreaterThan(0);
     expect(slices.some((s) => s.type === 'asset_class')).toBe(true);
     expect(slices.some((s) => s.type === 'currency')).toBe(true);
+  });
+});
+
+describe('computePerformance', () => {
+  it('returns best and worst performers from price data', () => {
+    const withValues: HoldingWithValue[] = [
+      makeHoldingWithValue({ id: 'a', name: 'Winner', symbol: 'WIN', valueBase: 100, weightPercent: 50 }),
+      makeHoldingWithValue({ id: 'b', name: 'Loser', symbol: 'LOSE', valueBase: 100, weightPercent: 50 }),
+    ];
+    const prices = new Map<string, PriceResult>([
+      ['WIN', { price: 110, currency: 'USD', symbol: 'WIN', changePercent: 5 }],
+      ['LOSE', { price: 90, currency: 'USD', symbol: 'LOSE', changePercent: -3 }],
+    ]);
+    const perf = computePerformance(withValues, prices, 'USD');
+    expect(perf.bestPerformers.length).toBe(1);
+    expect(perf.bestPerformers[0].name).toBe('Winner');
+    expect(perf.bestPerformers[0].returnPct).toBe(5);
+    expect(perf.worstPerformers.length).toBe(1);
+    expect(perf.worstPerformers[0].name).toBe('Loser');
+    expect(perf.worstPerformers[0].returnPct).toBe(-3);
+  });
+
+  it('computes unrealized P&L from cost basis', () => {
+    const withValues: HoldingWithValue[] = [
+      makeHoldingWithValue({
+        id: 'a',
+        name: 'Stock A',
+        symbol: 'A',
+        quantity: 10,
+        costBasis: 500,
+        costBasisCurrency: 'USD',
+        valueBase: 600,
+        weightPercent: 100,
+      }),
+    ];
+    const prices = new Map<string, PriceResult>([
+      ['A', { price: 60, currency: 'USD', symbol: 'A' }],
+    ]);
+    const perf = computePerformance(withValues, prices, 'USD');
+    expect(perf.unrealizedPnl.length).toBe(1);
+    expect(perf.totalUnrealizedPnl).toBe(100);
+    expect(perf.totalCostBasis).toBe(500);
+    expect(perf.coveragePercent).toBe(100);
+  });
+
+  it('returns empty arrays when no data available', () => {
+    const perf = computePerformance([], new Map(), 'USD');
+    expect(perf.bestPerformers).toEqual([]);
+    expect(perf.worstPerformers).toEqual([]);
+    expect(perf.unrealizedPnl).toEqual([]);
+    expect(perf.totalUnrealizedPnl).toBe(0);
+  });
+});
+
+describe('generateRichInsights', () => {
+  it('returns structured insight objects', () => {
+    const withValues: HoldingWithValue[] = [
+      makeHoldingWithValue({ valueBase: 80, weightPercent: 80 }),
+      makeHoldingWithValue({ valueBase: 20, weightPercent: 20 }),
+    ];
+    const c = computeConcentration(withValues);
+    const score = computeStaxScore(c, withValues);
+    const insights = generateRichInsights(c, score, withValues);
+    expect(insights.length).toBeGreaterThan(0);
+    expect(insights.length).toBeLessThanOrEqual(6);
+    for (const insight of insights) {
+      expect(insight).toHaveProperty('severity');
+      expect(insight).toHaveProperty('title');
+      expect(insight).toHaveProperty('body');
+      expect(insight).toHaveProperty('category');
+      expect(['info', 'warning', 'critical']).toContain(insight.severity);
+    }
+  });
+
+  it('flags high top-holding concentration as critical', () => {
+    const withValues: HoldingWithValue[] = [
+      makeHoldingWithValue({ valueBase: 90, weightPercent: 90 }),
+      makeHoldingWithValue({ valueBase: 10, weightPercent: 10 }),
+    ];
+    const c = computeConcentration(withValues);
+    const score = computeStaxScore(c, withValues);
+    const insights = generateRichInsights(c, score, withValues);
+    const concInsight = insights.find((i) => i.category === 'concentration');
+    expect(concInsight).toBeDefined();
+    expect(concInsight!.severity).toBe('critical');
+  });
+
+  it('includes performance insights when provided', () => {
+    const withValues: HoldingWithValue[] = [
+      makeHoldingWithValue({ valueBase: 50, weightPercent: 50, id: 'a', name: 'Best' }),
+      makeHoldingWithValue({ valueBase: 50, weightPercent: 50, id: 'b', name: 'Worst' }),
+    ];
+    const c = computeConcentration(withValues);
+    const perfResult = {
+      bestPerformers: [{ holdingId: 'a', name: 'Best', returnPct: 3 }],
+      worstPerformers: [{ holdingId: 'b', name: 'Worst', returnPct: -2 }],
+      unrealizedPnl: [],
+      totalUnrealizedPnl: 0,
+      totalCostBasis: 0,
+      coveragePercent: 0,
+    };
+    const insights = generateRichInsights(c, 70, withValues, perfResult);
+    const perfInsight = insights.find((i) => i.category === 'performance');
+    expect(perfInsight).toBeDefined();
+  });
+
+  it('produces positive reinforcement for high scores', () => {
+    const withValues: HoldingWithValue[] = [
+      makeHoldingWithValue({ valueBase: 25, weightPercent: 25, type: 'stock' }),
+      makeHoldingWithValue({ valueBase: 25, weightPercent: 25, type: 'crypto' }),
+      makeHoldingWithValue({ valueBase: 25, weightPercent: 25, type: 'etf' }),
+      makeHoldingWithValue({ valueBase: 25, weightPercent: 25, type: 'real_estate' }),
+    ];
+    const c = computeConcentration(withValues);
+    const insights = generateRichInsights(c, 90, withValues);
+    const general = insights.find((i) => i.title === 'Strong diversification');
+    expect(general).toBeDefined();
   });
 });

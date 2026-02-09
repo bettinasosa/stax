@@ -180,6 +180,21 @@ export function AddAssetScreen() {
   const [eventDate, setEventDate] = useState('');
   const [remindDaysBefore, setRemindDaysBefore] = useState(String(DEFAULT_REMIND_DAYS_BEFORE));
 
+  // Fixed Income metadata
+  const [couponRate, setCouponRate] = useState('');
+  const [issuer, setIssuer] = useState('');
+  const [maturityDate, setMaturityDate] = useState('');
+  const [yieldToMaturity, setYieldToMaturity] = useState('');
+  const [creditRating, setCreditRating] = useState('');
+  const [faceValue, setFaceValue] = useState('');
+
+  // Real Estate metadata
+  const [address, setAddress] = useState('');
+  const [propertyType, setPropertyType] = useState('');
+  const [rentalIncome, setRentalIncome] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [purchaseDate, setPurchaseDate] = useState('');
+
   const [listedCryptoSubFlow, setListedCryptoSubFlow] = useState<ListedCryptoSubFlow>(null);
   const [walletAddress, setWalletAddress] = useState('');
   const [walletHoldings, setWalletHoldings] = useState<WalletHolding[]>([]);
@@ -435,12 +450,44 @@ export function AddAssetScreen() {
       Alert.alert('Invalid input', 'Name and a non-negative value are required.');
       return;
     }
+
+    // Build metadata based on asset type
+    let metadata: Record<string, unknown> | undefined = undefined;
+
+    if (nonListedType === 'fixed_income') {
+      metadata = {};
+      if (couponRate) metadata.couponRate = parseFloat(couponRate);
+      if (issuer) metadata.issuer = issuer.trim();
+      if (maturityDate) {
+        const d = new Date(maturityDate.trim());
+        if (!isNaN(d.getTime())) metadata.maturityDate = d.toISOString();
+      }
+      if (yieldToMaturity) metadata.yieldToMaturity = parseFloat(yieldToMaturity);
+      if (creditRating) metadata.creditRating = creditRating.trim();
+      if (faceValue) metadata.faceValue = parseFloat(faceValue);
+      if (Object.keys(metadata).length === 0) metadata = undefined;
+    }
+
+    if (nonListedType === 'real_estate') {
+      metadata = {};
+      if (address) metadata.address = address.trim();
+      if (propertyType) metadata.propertyType = propertyType.trim();
+      if (rentalIncome) metadata.rentalIncome = parseFloat(rentalIncome);
+      if (purchasePrice) metadata.purchasePrice = parseFloat(purchasePrice);
+      if (purchaseDate) {
+        const d = new Date(purchaseDate.trim());
+        if (!isNaN(d.getTime())) metadata.purchaseDate = d.toISOString();
+      }
+      if (Object.keys(metadata).length === 0) metadata = undefined;
+    }
+
     const parsed = createNonListedHoldingSchema.safeParse({
       portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: nonListedType,
       name: name.trim(),
       manualValue: val,
       currency: nonListedCurrency,
+      metadata,
     });
     if (!parsed.success) {
       Alert.alert('Validation error', parsed.error.message);
@@ -719,6 +766,112 @@ export function AddAssetScreen() {
         onChangeText={setNonListedCurrency}
         placeholder="USD"
       />
+
+      {nonListedType === 'fixed_income' && (
+        <>
+          <Text style={styles.sectionLabel}>Fixed Income Details (optional)</Text>
+
+          <Text style={styles.label}>Coupon Rate (%)</Text>
+          <TextInput
+            style={styles.input}
+            value={couponRate}
+            onChangeText={setCouponRate}
+            placeholder="4.5"
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={styles.label}>Issuer</Text>
+          <TextInput
+            style={styles.input}
+            value={issuer}
+            onChangeText={setIssuer}
+            placeholder="e.g., US Treasury, Apple Inc."
+          />
+
+          <Text style={styles.label}>Maturity Date</Text>
+          <TextInput
+            style={styles.input}
+            value={maturityDate}
+            onChangeText={setMaturityDate}
+            placeholder="YYYY-MM-DD"
+          />
+
+          <Text style={styles.label}>Yield to Maturity (%)</Text>
+          <TextInput
+            style={styles.input}
+            value={yieldToMaturity}
+            onChangeText={setYieldToMaturity}
+            placeholder="3.8"
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={styles.label}>Credit Rating</Text>
+          <TextInput
+            style={styles.input}
+            value={creditRating}
+            onChangeText={setCreditRating}
+            placeholder="e.g., AAA, BB+"
+          />
+
+          <Text style={styles.label}>Face Value</Text>
+          <TextInput
+            style={styles.input}
+            value={faceValue}
+            onChangeText={setFaceValue}
+            placeholder="1000"
+            keyboardType="decimal-pad"
+          />
+        </>
+      )}
+
+      {nonListedType === 'real_estate' && (
+        <>
+          <Text style={styles.sectionLabel}>Real Estate Details (optional)</Text>
+
+          <Text style={styles.label}>Property Address</Text>
+          <TextInput
+            style={styles.input}
+            value={address}
+            onChangeText={setAddress}
+            placeholder="123 Main St, City, State"
+          />
+
+          <Text style={styles.label}>Property Type</Text>
+          <TextInput
+            style={styles.input}
+            value={propertyType}
+            onChangeText={setPropertyType}
+            placeholder="e.g., Residential, Commercial"
+          />
+
+          <Text style={styles.label}>Monthly Rental Income</Text>
+          <TextInput
+            style={styles.input}
+            value={rentalIncome}
+            onChangeText={setRentalIncome}
+            placeholder="2500"
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={styles.label}>Purchase Price</Text>
+          <TextInput
+            style={styles.input}
+            value={purchasePrice}
+            onChangeText={setPurchasePrice}
+            placeholder="500000"
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={styles.label}>Purchase Date</Text>
+          <TextInput
+            style={styles.input}
+            value={purchaseDate}
+            onChangeText={setPurchaseDate}
+            placeholder="YYYY-MM-DD"
+          />
+        </>
+      )}
+
       <Text style={styles.sectionLabel}>Optional: Add event (maturity, reminder, etc.)</Text>
       <Text style={styles.label}>Event type</Text>
       <View style={styles.row}>
