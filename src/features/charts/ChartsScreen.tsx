@@ -8,7 +8,7 @@ import {
   Dimensions,
   TouchableOpacity,
 } from 'react-native';
-import { LineChart, PieChart, BarChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingsWithValues, allocationByAssetClass } from '../portfolio/portfolioUtils';
 import { formatMoney } from '../../utils/money';
@@ -16,16 +16,19 @@ import { theme } from '../../utils/theme';
 import { useBenchmarkData } from './hooks/useBenchmarkData';
 import { EventsTimeline } from './EventsTimeline';
 import { FundamentalsView } from './FundamentalsView';
+import { MarketPulse } from '../analysis/MarketPulse';
+import { AllocationDonut } from '../analysis/AllocationDonut';
+import { exposureBreakdown } from '../analysis/analysisUtils';
 
 type TimeWindow = '7D' | '1M' | '3M' | 'ALL';
-type ChartView = 'portfolio' | 'allocation' | 'performance' | 'events' | 'fundamentals';
+type ChartView = 'portfolio' | 'allocation' | 'sentiment' | 'events' | 'fundamentals';
 
 const TABS: { key: ChartView; label: string }[] = [
+  { key: 'fundamentals', label: 'Fundamentals' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'allocation', label: 'Allocation' },
-  { key: 'performance', label: 'Top Holdings' },
+  { key: 'sentiment', label: 'Sentiment' },
   { key: 'events', label: 'Events' },
-  { key: 'fundamentals', label: 'Fundamentals' },
 ];
 
 const TIME_WINDOW_DAYS: Record<TimeWindow, number | null> = {
@@ -35,23 +38,12 @@ const TIME_WINDOW_DAYS: Record<TimeWindow, number | null> = {
   'ALL': null,
 };
 
-const CHART_COLORS = [
-  theme.colors.white,
-  '#4ECDC4',
-  '#FF6B6B',
-  '#FFE66D',
-  '#95E1D3',
-  '#F38181',
-  '#AA96DA',
-  '#FCBAD3',
-];
-
 const BENCHMARK_COLOR = '#4ECDC4';
 
 export function ChartsScreen() {
   const { portfolio, holdings, pricesBySymbol, loading, refresh, valueHistory } = usePortfolio();
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('1M');
-  const [chartView, setChartView] = useState<ChartView>('portfolio');
+  const [chartView, setChartView] = useState<ChartView>('fundamentals');
   const [showBenchmark, setShowBenchmark] = useState(false);
 
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
@@ -132,43 +124,9 @@ export function ChartsScreen() {
     };
   }, [filteredHistory, withValues, showBenchmark, benchmark]);
 
-  // Allocation pie chart data
-  const allocationChartData = useMemo(() => {
-    const allocation = allocationByAssetClass(withValues);
-    if (allocation.length === 0) return [];
-
-    return allocation.map((a, i) => ({
-      name: a.assetClass.replace(/_/g, ' '),
-      value: a.value,
-      percent: a.percent,
-      color: CHART_COLORS[i % CHART_COLORS.length],
-      legendFontColor: theme.colors.textSecondary,
-      legendFontSize: 12,
-    }));
-  }, [withValues]);
-
-  // Top holdings bar chart data
-  const performanceChartData = useMemo(() => {
-    const top5 = withValues.slice(0, 5);
-    if (top5.length === 0) {
-      return {
-        labels: [''],
-        datasets: [{ data: [0] }],
-      };
-    }
-
-    const labels = top5.map(h => {
-      const name = h.holding.name;
-      return name.length > 12 ? name.slice(0, 12) + '\u2026' : name;
-    });
-
-    const values = top5.map(h => h.valueBase);
-
-    return {
-      labels,
-      datasets: [{ data: values, color: () => theme.colors.white }],
-    };
-  }, [withValues]);
+  // Allocation data
+  const allocation = useMemo(() => allocationByAssetClass(withValues), [withValues]);
+  const exposure = useMemo(() => exposureBreakdown(withValues), [withValues]);
 
   const screenWidth = Dimensions.get('window').width;
 
@@ -303,96 +261,55 @@ export function ChartsScreen() {
         </View>
       )}
 
-      {/* Allocation Pie Chart */}
+      {/* Allocation (Donut charts by category) */}
       {chartView === 'allocation' && (
         <View style={styles.chartSection}>
-          <View style={styles.chartCard}>
-            {allocationChartData.length > 0 ? (
-              <>
-                <PieChart
-                  data={allocationChartData}
-                  width={screenWidth - 32}
-                  height={220}
-                  chartConfig={{
-                    color: () => theme.colors.white,
-                  }}
-                  accessor="value"
-                  backgroundColor="transparent"
-                  paddingLeft="15"
-                  absolute
-                />
-                <Text style={styles.chartCaption}>
-                  Breakdown by asset class
-                </Text>
-                <View style={styles.allocationLegend}>
-                  {allocationChartData.map((item) => (
-                    <View key={item.name} style={styles.allocationLegendRow}>
-                      <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                      <Text style={styles.legendName}>{item.name}</Text>
-                      <Text style={styles.legendValue}>
-                        {formatMoney(item.value, baseCurrency)} ({item.percent.toFixed(1)}%)
-                      </Text>
-                    </View>
-                  ))}
+          {/* Value summary cards */}
+          {allocation.length > 0 && (
+            <View style={styles.chartCard}>
+              <Text style={styles.allocationSummaryTitle}>By Value</Text>
+              {allocation.map((a) => (
+                <View key={a.assetClass} style={styles.allocationValueRow}>
+                  <Text style={styles.allocationClassName}>
+                    {a.assetClass.replace(/_/g, ' ')}
+                  </Text>
+                  <View style={styles.allocationValueRight}>
+                    <Text style={styles.allocationValueText}>
+                      {formatMoney(a.value, baseCurrency)}
+                    </Text>
+                    <Text style={styles.allocationPctText}>
+                      {a.percent.toFixed(1)}%
+                    </Text>
+                  </View>
                 </View>
-              </>
-            ) : (
+              ))}
+            </View>
+          )}
+
+          {/* Interactive donut charts */}
+          <AllocationDonut exposure={exposure} />
+
+          {allocation.length === 0 && (
+            <View style={styles.chartCard}>
               <Text style={styles.emptyText}>No allocation data available</Text>
-            )}
-          </View>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Top Holdings Bar Chart */}
-      {chartView === 'performance' && (
+      {/* Sentiment (Analyst Recommendations) */}
+      {chartView === 'sentiment' && (
         <View style={styles.chartSection}>
-          <View style={styles.chartCard}>
-            {withValues.length > 0 ? (
-              <>
-                <BarChart
-                  data={performanceChartData}
-                  width={screenWidth - 32}
-                  height={220}
-                  yAxisLabel={baseCurrency === 'USD' ? '$' : ''}
-                  yAxisSuffix=""
-                  chartConfig={{
-                    backgroundColor: 'transparent',
-                    backgroundGradientFrom: 'transparent',
-                    backgroundGradientTo: 'transparent',
-                    decimalPlaces: 0,
-                    color: () => theme.colors.white,
-                    labelColor: () => theme.colors.textSecondary,
-                    propsForLabels: { fontSize: 10 },
-                  }}
-                  fromZero
-                  withInnerLines={false}
-                  withHorizontalLabels
-                  style={styles.chart}
-                />
-                <Text style={styles.chartCaption}>
-                  Top {Math.min(5, withValues.length)} holdings by value
-                </Text>
-                <View style={styles.holdingsListContainer}>
-                  {withValues.slice(0, 5).map((h, i) => (
-                    <View key={h.holding.id} style={styles.holdingRow}>
-                      <Text style={styles.holdingRank}>{i + 1}</Text>
-                      <Text style={styles.holdingName} numberOfLines={1}>{h.holding.name}</Text>
-                      <Text style={styles.holdingValue}>{formatMoney(h.valueBase, baseCurrency)}</Text>
-                      <Text style={styles.holdingWeight}>{h.weightPercent.toFixed(1)}%</Text>
-                    </View>
-                  ))}
-                </View>
-              </>
-            ) : (
-              <Text style={styles.emptyText}>No holdings to display</Text>
-            )}
-          </View>
+          <MarketPulse holdings={holdings} />
         </View>
       )}
 
       {/* Events Timeline */}
       {chartView === 'events' && (
-        <EventsTimeline portfolioId={portfolio?.id ?? null} />
+        <EventsTimeline
+          portfolioId={portfolio?.id ?? null}
+          holdings={holdings}
+        />
       )}
 
       {/* Fundamentals (EPS + Metrics) */}
@@ -570,62 +487,35 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
   },
 
-  // Allocation legend
-  allocationLegend: {
-    marginTop: theme.spacing.sm,
-  },
-  allocationLegendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // Allocation value rows
+  allocationSummaryTitle: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.textPrimary,
     marginBottom: theme.spacing.xs,
   },
-  legendDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: theme.spacing.xs,
-  },
-  legendName: {
-    ...theme.typography.caption,
-    color: theme.colors.textPrimary,
-    flex: 1,
-  },
-  legendValue: {
-    ...theme.typography.caption,
-    color: theme.colors.textSecondary,
-  },
-
-  // Holdings list
-  holdingsListContainer: {
-    marginTop: theme.spacing.sm,
-  },
-  holdingRow: {
+  allocationValueRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: theme.spacing.xs,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-  holdingRank: {
-    ...theme.typography.caption,
-    color: theme.colors.textTertiary,
-    width: 24,
-  },
-  holdingName: {
-    ...theme.typography.caption,
-    color: theme.colors.textPrimary,
-    flex: 1,
-    marginRight: theme.spacing.xs,
-  },
-  holdingValue: {
-    ...theme.typography.captionMedium,
-    color: theme.colors.textPrimary,
-    marginRight: theme.spacing.xs,
-  },
-  holdingWeight: {
+  allocationClassName: {
     ...theme.typography.caption,
     color: theme.colors.textSecondary,
-    width: 48,
-    textAlign: 'right',
+    textTransform: 'capitalize',
   },
+  allocationValueRight: {
+    alignItems: 'flex-end',
+  },
+  allocationValueText: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.textPrimary,
+  },
+  allocationPctText: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+  },
+
 });

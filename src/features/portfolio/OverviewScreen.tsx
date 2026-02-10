@@ -19,8 +19,10 @@ import {
   portfolioTotalRef,
   portfolioTotalBase,
   attributionFromChange,
+  computePortfolioStats,
   type HoldingWithValue,
 } from './portfolioUtils';
+import { PortfolioStatsCard } from './PortfolioStatsCard';
 import { formatMoney } from '../../utils/money';
 import { theme } from '../../utils/theme';
 import { holdingRepo, eventRepo } from '../../data';
@@ -91,6 +93,11 @@ export function OverviewScreen() {
   const topContributors = attribution.rows.filter((r) => r.contributionAbs > 0).slice(0, 3);
   const topDetractors = attribution.rows.filter((r) => r.contributionAbs < 0).slice(0, 3);
   const showAttribution = totalRef > 0 && attribution.rows.some((r) => r.contributionAbs !== 0);
+
+  const portfolioStats = useMemo(
+    () => computePortfolioStats(filteredHoldings, pricesBySymbol, baseCurrency),
+    [filteredHoldings, pricesBySymbol, baseCurrency]
+  );
 
   /** Number of days the chart covers (for the label below the chart). */
   const chartDays = useMemo(() => {
@@ -325,6 +332,11 @@ export function OverviewScreen() {
               : 'Estimated trend — more data points collected on each refresh'}
           </Text>
         </View>
+      )}
+
+      {/* Portfolio Summary Stats */}
+      {filteredHoldings.length > 0 && (
+        <PortfolioStatsCard stats={portfolioStats} baseCurrency={baseCurrency} />
       )}
 
       {showAttribution && (topContributors.length > 0 || topDetractors.length > 0) && (

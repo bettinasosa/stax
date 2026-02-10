@@ -59,8 +59,11 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
       <Text style={styles.subtitle}>Unlock full portfolio insights</Text>
       <View style={styles.bullets}>
         <Text style={styles.bullet}>• Unlimited holdings</Text>
-        <Text style={styles.bullet}>• Exposure breakdown (country, sector, currency)</Text>
+        <Text style={styles.bullet}>• Analyst sentiment & price targets</Text>
+        <Text style={styles.bullet}>• Insider buying/selling signals</Text>
+        <Text style={styles.bullet}>• Deep allocation analysis (country, sector, currency)</Text>
         <Text style={styles.bullet}>• Concentration warnings and Stax Score</Text>
+        <Text style={styles.bullet}>• Real estate & fixed income analytics</Text>
         <Text style={styles.bullet}>• Unlimited reminder schedules</Text>
       </View>
       {trigger && (

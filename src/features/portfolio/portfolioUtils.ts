@@ -202,6 +202,119 @@ export function formatHoldingValueDisplay(
   return formatMoney(value, baseCurrency);
 }
 
+// ---------------------------------------------------------------------------
+// Portfolio Summary Stats
+// ---------------------------------------------------------------------------
+
+export interface PortfolioStats {
+  /** Total current value in base currency. */
+  totalValue: number;
+  /** Total cost basis in base currency (sum of costBasis across all holdings). */
+  totalCostBasis: number;
+  /** Total unrealised gain/loss (totalValue - totalCostBasis). */
+  totalGainLoss: number;
+  /** Total unrealised gain/loss as a percentage of cost basis. */
+  totalGainLossPct: number;
+  /** Number of holdings. */
+  holdingCount: number;
+  /** Number of distinct asset classes represented. */
+  assetClassCount: number;
+  /** Weight of the single largest holding (0-100). */
+  topHoldingWeight: number;
+  /** Name of the largest holding. */
+  topHoldingName: string;
+  /** Combined weight of the top 3 holdings (0-100). */
+  top3Weight: number;
+  /** Herfindahl-Hirschman Index (0-10000) — lower = more diversified. */
+  hhi: number;
+  /** Diversification label based on HHI. */
+  diversificationLabel: 'Well diversified' | 'Moderately concentrated' | 'Highly concentrated';
+  /** Number of priced holdings (with live price data). */
+  pricedCount: number;
+  /** Number of manual-value holdings (no live price). */
+  manualCount: number;
+  /** Average holding weight. */
+  avgWeight: number;
+  /** Day change P&L in base currency (null when no price data). */
+  dayChangePnl: number | null;
+  /** Day change % (null when no price data). */
+  dayChangePct: number | null;
+}
+
+/**
+ * Compute comprehensive portfolio summary statistics.
+ */
+export function computePortfolioStats(
+  holdings: Holding[],
+  pricesBySymbol: Map<string, PriceResult>,
+  baseCurrency: string
+): PortfolioStats {
+  const withVal = holdingsWithValues(holdings, pricesBySymbol, baseCurrency);
+  const totalValue = withVal.reduce((s, h) => s + h.valueBase, 0);
+
+  // Cost basis
+  let totalCostBasis = 0;
+  for (const h of holdings) {
+    if (h.costBasis != null) {
+      const rate = getRateToBase(h.costBasisCurrency ?? h.currency, baseCurrency);
+      totalCostBasis += h.costBasis * rate;
+    }
+  }
+  const totalGainLoss = totalCostBasis > 0 ? totalValue - totalCostBasis : 0;
+  const totalGainLossPct = totalCostBasis > 0 ? (totalGainLoss / totalCostBasis) * 100 : 0;
+
+  // Counts
+  const holdingCount = holdings.length;
+  const assetClasses = new Set(holdings.map((h) => h.type));
+  const assetClassCount = assetClasses.size;
+  const pricedCount = holdings.filter(
+    (h) => h.symbol && PRICED_TYPES.includes(h.type as (typeof PRICED_TYPES)[number])
+  ).length;
+  const manualCount = holdings.filter((h) => h.manualValue != null).length;
+
+  // Concentration
+  const topHoldingWeight = withVal.length > 0 ? withVal[0].weightPercent : 0;
+  const topHoldingName = withVal.length > 0 ? withVal[0].holding.name : '';
+  const top3Weight = withVal.slice(0, 3).reduce((s, h) => s + h.weightPercent, 0);
+  const avgWeight = holdingCount > 0 ? 100 / holdingCount : 0;
+
+  // HHI: sum of squared weights (as fractions)
+  const hhi = withVal.reduce((s, h) => {
+    const w = h.weightPercent / 100;
+    return s + w * w * 10000;
+  }, 0);
+  const diversificationLabel: PortfolioStats['diversificationLabel'] =
+    hhi < 1500
+      ? 'Well diversified'
+      : hhi < 2500
+        ? 'Moderately concentrated'
+        : 'Highly concentrated';
+
+  // Day change
+  const change = portfolioChange(holdings, pricesBySymbol, baseCurrency);
+  const dayChangePnl = change?.pnl ?? null;
+  const dayChangePct = change?.pct != null ? change.pct * 100 : null;
+
+  return {
+    totalValue,
+    totalCostBasis,
+    totalGainLoss,
+    totalGainLossPct,
+    holdingCount,
+    assetClassCount,
+    topHoldingWeight,
+    topHoldingName,
+    top3Weight,
+    hhi,
+    diversificationLabel,
+    pricedCount,
+    manualCount,
+    avgWeight,
+    dayChangePnl,
+    dayChangePct,
+  };
+}
+
 export interface AttributionRow {
   holdingId: string;
   holdingName: string;

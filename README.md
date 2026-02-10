@@ -100,6 +100,13 @@ Then open `stax.db` locally. You can also use **Device Explorer** in Android Stu
 
 On a real device you don’t have direct filesystem access. Use the in-app **Settings → Your data** view to see exported JSON, or rely on a debug build and platform-specific tools (e.g. Xcode → Devices → download container for iOS).
 
+## Releasing to TestFlight
+
+To build and submit the iOS app to TestFlight for beta testers, see **[docs/TESTFLIGHT.md](docs/TESTFLIGHT.md)**. You’ll need an Apple Developer account, Expo account, and the app configured in App Store Connect. Quick commands:
+
+- `npm run build:ios` – production iOS build (EAS)
+- `npm run submit:ios` – submit latest build to TestFlight
+
 ## Scripts
 
 | Command | Description |
@@ -107,6 +114,8 @@ On a real device you don’t have direct filesystem access. Use the in-app **Set
 | `npm start` | Start Expo dev server |
 | `npm run ios` | Run on iOS simulator |
 | `npm run android` | Run on Android emulator |
+| `npm run build:ios` | EAS production iOS build (for TestFlight/App Store) |
+| `npm run submit:ios` | Submit latest iOS build to TestFlight |
 | `npm run lint` | Run ESLint |
 | `npm test` | Run Vitest unit tests |
 

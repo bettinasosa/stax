@@ -18,13 +18,15 @@ import { theme } from '../../utils/theme';
 /** Filter pill labels and types they include. */
 const FILTER_PILLS: { label: string; types: string[] }[] = [
   { label: 'All', types: [] },
-  { label: 'Stocks', types: ['stock', 'etf'] },
+  { label: 'Stocks', types: ['stock'] },
+  { label: 'ETFs', types: ['etf'] },
   { label: 'Crypto', types: ['crypto'] },
+  { label: 'Metals', types: ['metal'] },
   { label: 'Commodities', types: ['commodity'] },
   { label: 'Fixed Income', types: ['fixed_income'] },
   { label: 'Real Estate', types: ['real_estate'] },
   { label: 'Cash', types: ['cash'] },
-  { label: 'Other', types: ['other', 'metal'] },
+  { label: 'Other', types: ['other'] },
 ];
 
 /**
@@ -50,11 +52,20 @@ export function HoldingsScreen() {
     [holdings, pricesBySymbol, baseCurrency]
   );
 
+  /** Only show filter pills for asset types that exist in the portfolio. */
+  const visiblePills = useMemo(() => {
+    const holdingTypes = new Set<string>(holdings.map((h) => h.type));
+    return FILTER_PILLS.filter(
+      (pill) => pill.types.length === 0 || pill.types.some((t) => holdingTypes.has(t))
+    );
+  }, [holdings]);
+
+  const activePill = visiblePills[filterIndex] ?? visiblePills[0];
+
   const filtered = useMemo(() => {
-    const pill = FILTER_PILLS[filterIndex];
-    if (pill.types.length === 0) return withValues;
-    return withValues.filter((x) => pill.types.includes(x.holding.type));
-  }, [withValues, filterIndex]);
+    if (!activePill || activePill.types.length === 0) return withValues;
+    return withValues.filter((x) => activePill.types.includes(x.holding.type));
+  }, [withValues, activePill]);
 
   const handlePress = (item: HoldingWithValue) => {
     (navigation as { navigate: (s: string, p: object) => void }).navigate('HoldingDetail', {
@@ -153,7 +164,7 @@ export function HoldingsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.filters}>
-        {FILTER_PILLS.map((pill, i) => (
+        {visiblePills.map((pill, i) => (
           <TouchableOpacity
             key={pill.label}
             style={[styles.filterChip, filterIndex === i && styles.filterChipActive]}
@@ -187,8 +198,7 @@ export function HoldingsScreen() {
       <TouchableOpacity
         style={styles.fab}
         onPress={() => {
-          const pill = FILTER_PILLS[filterIndex];
-          const initialType = pill.types.length > 0 ? pill.types[0] : undefined;
+          const initialType = activePill?.types.length > 0 ? activePill.types[0] : undefined;
           (navigation as { navigate: (s: string, p?: { initialType?: string }) => void }).navigate(
             'AddAsset',
             initialType ? { initialType } : undefined

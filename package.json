@@ -9,7 +9,9 @@
     "web": "expo start --web",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts,.tsx",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:ios": "npx eas build --platform ios --profile production",
+    "submit:ios": "npx eas submit --platform ios --profile production --latest"
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
@@ -38,6 +40,7 @@
     "@types/react": "~19.1.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
+    "eas-cli": "^16.32.0",
     "eslint": "^9.39.2",
     "eslint-config-expo": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",

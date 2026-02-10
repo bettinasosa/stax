@@ -309,7 +309,7 @@ export interface RichInsight {
   severity: 'info' | 'warning' | 'critical';
   title: string;
   body: string;
-  category: 'concentration' | 'diversification' | 'performance' | 'general';
+  category: 'concentration' | 'diversification' | 'performance' | 'general' | 'real_estate' | 'fixed_income';
 }
 
 /**
@@ -410,6 +410,117 @@ export function generateRichInsights(
     }
   }
 
+  // ── Real estate insights ──
+  const reHoldings = withValues.filter((x) => x.holding.type === 'real_estate');
+  if (reHoldings.length > 0) {
+    const totalReValue = reHoldings.reduce((s, x) => s + x.valueBase, 0);
+    const rePercent = withValues.reduce((s, x) => s + x.valueBase, 0) > 0
+      ? (totalReValue / withValues.reduce((s, x) => s + x.valueBase, 0)) * 100
+      : 0;
+
+    if (rePercent > 50) {
+      insights.push({
+        severity: 'warning',
+        title: `Real estate is ${rePercent.toFixed(0)}% of portfolio`,
+        body: 'Heavy real estate exposure creates illiquidity risk. Consider diversifying into liquid assets.',
+        category: 'real_estate',
+      });
+    }
+
+    const reWithRentalIncome = reHoldings.filter((x) => {
+      const meta = x.holding.metadata as { rentalIncome?: number } | undefined;
+      return meta?.rentalIncome != null && meta.rentalIncome > 0;
+    });
+    if (reWithRentalIncome.length > 0) {
+      let totalAnnualRental = 0;
+      for (const h of reWithRentalIncome) {
+        const meta = h.holding.metadata as { rentalIncome?: number } | undefined;
+        totalAnnualRental += (meta?.rentalIncome ?? 0) * 12;
+      }
+      const yieldPct = totalReValue > 0 ? (totalAnnualRental / totalReValue) * 100 : 0;
+      insights.push({
+        severity: yieldPct < 3 ? 'warning' : 'info',
+        title: `Rental yield: ${yieldPct.toFixed(1)}%`,
+        body: yieldPct < 3
+          ? 'Your rental yield is below typical benchmarks (4-8%). Consider if appreciation justifies the position.'
+          : `Your properties generate ~${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalAnnualRental)}/year in rental income.`,
+        category: 'real_estate',
+      });
+    }
+
+    const reWithoutPurchasePrice = reHoldings.filter((x) => {
+      const meta = x.holding.metadata as { purchasePrice?: number } | undefined;
+      return !meta?.purchasePrice;
+    });
+    if (reWithoutPurchasePrice.length > 0) {
+      insights.push({
+        severity: 'info',
+        title: `${reWithoutPurchasePrice.length} propert${reWithoutPurchasePrice.length === 1 ? 'y' : 'ies'} missing purchase price`,
+        body: 'Add purchase price to track appreciation and capital gains.',
+        category: 'real_estate',
+      });
+    }
+  }
+
+  // ── Fixed income insights ──
+  const fiHoldings = withValues.filter((x) => x.holding.type === 'fixed_income');
+  if (fiHoldings.length > 0) {
+    const totalFiValue = fiHoldings.reduce((s, x) => s + x.valueBase, 0);
+
+    // Average coupon rate
+    const fiWithCoupon = fiHoldings.filter((x) => {
+      const meta = x.holding.metadata as { couponRate?: number } | undefined;
+      return meta?.couponRate != null && meta.couponRate > 0;
+    });
+    if (fiWithCoupon.length > 0) {
+      const weightedCoupon = fiWithCoupon.reduce((s, x) => {
+        const meta = x.holding.metadata as { couponRate?: number } | undefined;
+        return s + (meta?.couponRate ?? 0) * x.valueBase;
+      }, 0);
+      const avgCoupon = totalFiValue > 0 ? weightedCoupon / totalFiValue : 0;
+      insights.push({
+        severity: 'info',
+        title: `Weighted avg coupon: ${avgCoupon.toFixed(2)}%`,
+        body: `Across ${fiWithCoupon.length} fixed income holding${fiWithCoupon.length === 1 ? '' : 's'}.`,
+        category: 'fixed_income',
+      });
+    }
+
+    // Upcoming maturities
+    const now = new Date();
+    const sixMonths = new Date();
+    sixMonths.setMonth(sixMonths.getMonth() + 6);
+    const maturingSoon = fiHoldings.filter((x) => {
+      const meta = x.holding.metadata as { maturityDate?: string } | undefined;
+      if (!meta?.maturityDate) return false;
+      const d = new Date(meta.maturityDate);
+      return d >= now && d <= sixMonths;
+    });
+    if (maturingSoon.length > 0) {
+      insights.push({
+        severity: 'warning',
+        title: `${maturingSoon.length} bond${maturingSoon.length === 1 ? '' : 's'} maturing within 6 months`,
+        body: 'Plan for reinvestment or redemption of maturing fixed income positions.',
+        category: 'fixed_income',
+      });
+    }
+
+    // Credit quality check
+    const lowRated = fiHoldings.filter((x) => {
+      const meta = x.holding.metadata as { creditRating?: string } | undefined;
+      const rating = meta?.creditRating?.toUpperCase() ?? '';
+      return rating.startsWith('B') && !rating.startsWith('BB') && !rating.startsWith('BA');
+    });
+    if (lowRated.length > 0) {
+      insights.push({
+        severity: 'warning',
+        title: `${lowRated.length} holding${lowRated.length === 1 ? '' : 's'} with low credit rating`,
+        body: 'Holdings rated below BB carry higher default risk. Ensure you\'re compensated with adequate yield.',
+        category: 'fixed_income',
+      });
+    }
+  }
+
   // Positive reinforcement
   if (score >= 80) {
     insights.push({
@@ -427,5 +538,5 @@ export function generateRichInsights(
     });
   }
 
-  return insights.slice(0, 6);
+  return insights.slice(0, 8);
 }

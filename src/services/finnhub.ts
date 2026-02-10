@@ -235,6 +235,153 @@ export interface FinnhubMetricResponse {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Earnings Calendar (upcoming earnings dates)
+// ---------------------------------------------------------------------------
+
+const EARNINGS_CALENDAR_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
+export interface EarningsCalendarEntry {
+  date: string;               // "2024-01-25"
+  epsActual: number | null;
+  epsEstimate: number | null;
+  hour: string;               // "bmo" (before market open), "amc" (after market close), ""
+  quarter: number;
+  revenueActual: number | null;
+  revenueEstimate: number | null;
+  symbol: string;
+  year: number;
+}
+
+/**
+ * Fetch upcoming earnings calendar for given symbols within a date range.
+ * @param from - Start date "YYYY-MM-DD"
+ * @param to - End date "YYYY-MM-DD"
+ * @param symbol - Optional single symbol filter; omit for all symbols in range.
+ */
+export async function getEarningsCalendar(
+  from: string,
+  to: string,
+  symbol?: string
+): Promise<EarningsCalendarEntry[]> {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+
+  const cacheKey = `earnings_cal_${symbol ?? 'all'}_${from}_${to}`;
+  const cached = getCached<EarningsCalendarEntry[]>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    let url = `${FINNHUB_BASE}/calendar/earnings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(apiKey)}`;
+    if (symbol) {
+      url += `&symbol=${encodeURIComponent(symbol.trim().toUpperCase())}`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { earningsCalendar?: EarningsCalendarEntry[] };
+    const result = Array.isArray(data.earningsCalendar) ? data.earningsCalendar : [];
+    setCache(cacheKey, result, EARNINGS_CALENDAR_TTL);
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Analyst Recommendation Trends
+// ---------------------------------------------------------------------------
+
+const RECOMMENDATION_TTL = 12 * 60 * 60 * 1000; // 12 hours
+
+export interface RecommendationTrend {
+  buy: number;
+  hold: number;
+  period: string;         // "2024-01-01"
+  sell: number;
+  strongBuy: number;
+  strongSell: number;
+  symbol: string;
+}
+
+/**
+ * Fetch analyst recommendation trends for a symbol.
+ * Returns monthly snapshots with buy/hold/sell counts. Most recent first.
+ * @see https://finnhub.io/docs/api/recommendation-trends
+ */
+export async function getRecommendationTrends(
+  symbol: string
+): Promise<RecommendationTrend[]> {
+  const apiKey = getApiKey();
+  if (!apiKey || !symbol.trim()) return [];
+
+  const sym = symbol.trim().toUpperCase();
+  const cacheKey = `rec_${sym}`;
+  const cached = getCached<RecommendationTrend[]>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `${FINNHUB_BASE}/stock/recommendation?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = (await res.json()) as RecommendationTrend[];
+    const result = Array.isArray(data) ? data : [];
+    setCache(cacheKey, result, RECOMMENDATION_TTL);
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Company Profile
+// ---------------------------------------------------------------------------
+
+const PROFILE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days (rarely changes)
+
+export interface CompanyProfile {
+  country: string;
+  currency: string;
+  exchange: string;
+  finnhubIndustry: string;
+  ipo: string;
+  logo: string;
+  marketCapitalization: number;
+  name: string;
+  phone: string;
+  shareOutstanding: number;
+  ticker: string;
+  weburl: string;
+}
+
+/**
+ * Fetch company profile (country, industry, exchange, logo, etc.).
+ * Useful for auto-enriching holding metadata on add.
+ * @see https://finnhub.io/docs/api/company-profile2
+ */
+export async function getCompanyProfile(
+  symbol: string
+): Promise<CompanyProfile | null> {
+  const apiKey = getApiKey();
+  if (!apiKey || !symbol.trim()) return null;
+
+  const sym = symbol.trim().toUpperCase();
+  const cacheKey = `profile_${sym}`;
+  const cached = getCached<CompanyProfile>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `${FINNHUB_BASE}/stock/profile2?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as CompanyProfile;
+    if (!data.name && !data.ticker) return null;
+    setCache(cacheKey, data, PROFILE_TTL);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fetch basic financial metrics for a symbol (P/E, EPS, revenue, margins, etc.).
  */
@@ -259,5 +406,95 @@ export async function getBasicFinancials(
     return data;
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Price Target Consensus
+// ---------------------------------------------------------------------------
+
+const PRICE_TARGET_TTL = 12 * 60 * 60 * 1000; // 12 hours
+
+export interface PriceTarget {
+  lastUpdated: string;
+  symbol: string;
+  targetHigh: number;
+  targetLow: number;
+  targetMean: number;
+  targetMedian: number;
+}
+
+/**
+ * Fetch analyst price target consensus for a symbol.
+ * @see https://finnhub.io/docs/api/price-target
+ */
+export async function getPriceTarget(
+  symbol: string
+): Promise<PriceTarget | null> {
+  const apiKey = getApiKey();
+  if (!apiKey || !symbol.trim()) return null;
+
+  const sym = symbol.trim().toUpperCase();
+  const cacheKey = `pt_${sym}`;
+  const cached = getCached<PriceTarget>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `${FINNHUB_BASE}/stock/price-target?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as PriceTarget;
+    if (!data.targetMedian && !data.targetMean) return null;
+    setCache(cacheKey, data, PRICE_TARGET_TTL);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Insider Sentiment (monthly aggregated)
+// ---------------------------------------------------------------------------
+
+const INSIDER_SENTIMENT_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+export interface InsiderSentimentData {
+  symbol: string;
+  year: number;
+  month: number;
+  change: number;    // net insider change (positive = buying)
+  mspr: number;      // monthly share purchase ratio (-100 to 100)
+}
+
+/**
+ * Fetch insider sentiment for a symbol (monthly aggregated MSPR).
+ * Positive MSPR = more insider buying than selling.
+ * @see https://finnhub.io/docs/api/insider-sentiment
+ */
+export async function getInsiderSentiment(
+  symbol: string
+): Promise<InsiderSentimentData[]> {
+  const apiKey = getApiKey();
+  if (!apiKey || !symbol.trim()) return [];
+
+  const sym = symbol.trim().toUpperCase();
+  const cacheKey = `insider_${sym}`;
+  const cached = getCached<InsiderSentimentData[]>(cacheKey);
+  if (cached) return cached;
+
+  const now = new Date();
+  const from = `${now.getFullYear() - 1}-01-01`;
+  const to = now.toISOString().slice(0, 10);
+
+  try {
+    const url = `${FINNHUB_BASE}/stock/insider-sentiment?symbol=${encodeURIComponent(sym)}&from=${from}&to=${to}&token=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { data?: InsiderSentimentData[] };
+    const result = Array.isArray(data.data) ? data.data : [];
+    setCache(cacheKey, result, INSIDER_SENTIMENT_TTL);
+    return result;
+  } catch {
+    return [];
   }
 }

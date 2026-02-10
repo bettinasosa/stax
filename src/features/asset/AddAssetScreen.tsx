@@ -25,7 +25,7 @@ import {
 } from '../../services/analytics';
 import { fetchWalletHoldings, isValidEthereumAddress } from '../../services/ethplorer';
 import type { WalletHolding } from '../../services/ethplorer';
-import { searchSymbols, isFinnhubConfigured } from '../../services/finnhub';
+import { searchSymbols, isFinnhubConfigured, getCompanyProfile } from '../../services/finnhub';
 import type { FinnhubSearchResult } from '../../services/finnhub';
 import { FREE_HOLDINGS_LIMIT } from '../../utils/constants';
 import { createListedHoldingSchema, createNonListedHoldingSchema, buildAssetId } from '../../data/schemas';
@@ -206,6 +206,7 @@ export function AddAssetScreen() {
   const [symbolSearchLoading, setSymbolSearchLoading] = useState(false);
   const symbolSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [listedAssetName, setListedAssetName] = useState('');
+  const [enrichedMeta, setEnrichedMeta] = useState<{ country?: string; sector?: string } | null>(null);
 
   const isStockOrEtf = listedType === 'stock' || listedType === 'etf';
   const showSymbolSearch = isStockOrEtf && isFinnhubConfigured();
@@ -231,10 +232,24 @@ export function AddAssetScreen() {
     };
   }, [showSymbolSearch, symbol]);
 
-  const handleSelectSymbolSearchResult = (result: FinnhubSearchResult) => {
-    setSymbol(result.displaySymbol || result.symbol);
+  const handleSelectSymbolSearchResult = async (result: FinnhubSearchResult) => {
+    const sym = result.displaySymbol || result.symbol;
+    setSymbol(sym);
     setListedAssetName(result.description || '');
     setSymbolSearchResults(null);
+    // Auto-enrich: fetch company profile for country + sector
+    setEnrichedMeta(null);
+    try {
+      const profile = await getCompanyProfile(sym);
+      if (profile) {
+        setEnrichedMeta({
+          country: profile.country || undefined,
+          sector: profile.finnhubIndustry || undefined,
+        });
+      }
+    } catch {
+      // Non-critical — user can still save without metadata
+    }
   };
 
   const handleSaveListed = async () => {
@@ -254,6 +269,9 @@ export function AddAssetScreen() {
       Alert.alert('Invalid input', 'Symbol and a positive quantity are required.');
       return;
     }
+    const metadata = enrichedMeta
+      ? { country: enrichedMeta.country, sector: enrichedMeta.sector }
+      : undefined;
     const parsed = createListedHoldingSchema.safeParse({
       portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: listedType,
@@ -263,6 +281,7 @@ export function AddAssetScreen() {
       costBasis: costBasis ? parseFloat(costBasis) : undefined,
       costBasisCurrency: listedCurrency,
       currency: listedCurrency,
+      metadata,
     });
     if (!parsed.success) {
       Alert.alert('Validation error', parsed.error.message);
@@ -698,6 +717,20 @@ export function AddAssetScreen() {
             ))}
           </View>
         )}
+        {enrichedMeta && (enrichedMeta.country || enrichedMeta.sector) && (
+          <View style={styles.enrichedRow}>
+            {enrichedMeta.country ? (
+              <View style={styles.enrichedBadge}>
+                <Text style={styles.enrichedBadgeText}>{enrichedMeta.country}</Text>
+              </View>
+            ) : null}
+            {enrichedMeta.sector ? (
+              <View style={styles.enrichedBadge}>
+                <Text style={styles.enrichedBadgeText}>{enrichedMeta.sector}</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
         <Text style={styles.label}>Quantity</Text>
         <TextInput
           style={styles.input}
@@ -1109,6 +1142,24 @@ const styles = StyleSheet.create({
   searchResultsHint: {
     ...theme.typography.caption,
     color: theme.colors.textSecondary,
+  },
+  enrichedRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.xs,
+  },
+  enrichedBadge: {
+    backgroundColor: theme.colors.accent + '20',
+    paddingHorizontal: theme.spacing.xs,
+    paddingVertical: 3,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.accent + '40',
+  },
+  enrichedBadgeText: {
+    ...theme.typography.small,
+    color: theme.colors.accent,
   },
   searchResults: {
     marginTop: theme.spacing.xs,
