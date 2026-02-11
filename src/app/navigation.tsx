@@ -7,6 +7,8 @@ import { HoldingsScreen } from '../features/portfolio/HoldingsScreen';
 import { AddAssetScreen } from '../features/asset/AddAssetScreen';
 import { HoldingDetailScreen } from '../features/asset/HoldingDetailScreen';
 import { AddEventScreen } from '../features/asset/AddEventScreen';
+import { RecordSellScreen } from '../features/asset/RecordSellScreen';
+import { LogDividendScreen } from '../features/asset/LogDividendScreen';
 import { ChartsScreen } from '../features/charts/ChartsScreen';
 import { AnalysisScreen } from '../features/analysis/AnalysisScreen';
 import { theme } from '../utils/theme';
@@ -61,6 +63,8 @@ function ChartsStack() {
         options={{ title: 'Holding' }}
       />
       <Stack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Add event' }} />
+      <Stack.Screen name="RecordSell" component={RecordSellScreen} options={{ title: 'Record sell' }} />
+      <Stack.Screen name="LogDividend" component={LogDividendScreen} options={{ title: 'Log dividend' }} />
     </Stack.Navigator>
   );
 }
@@ -94,6 +98,8 @@ function HoldingsStack() {
         options={{ title: 'Holding' }}
       />
       <Stack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Add event' }} />
+      <Stack.Screen name="RecordSell" component={RecordSellScreen} options={{ title: 'Record sell' }} />
+      <Stack.Screen name="LogDividend" component={LogDividendScreen} options={{ title: 'Log dividend' }} />
       <Stack.Screen name="AddAsset" component={AddAssetScreen} options={{ title: 'Add Asset' }} />
     </Stack.Navigator>
   );

@@ -1,5 +1,6 @@
 import type { HoldingWithValue } from '../portfolio/portfolioUtils';
 import type { PriceResult } from '../../services/pricing';
+import type { Transaction } from '../../data/schemas';
 import { getRateToBase } from '../../utils/money';
 import {
   STAX_SCORE_TOP_HOLDING_THRESHOLD,
@@ -235,7 +236,8 @@ export interface PerformanceResult {
 export function computePerformance(
   withValues: HoldingWithValue[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): PerformanceResult {
   const perfRows: PerfRow[] = [];
   const pnlRows: PnlRow[] = [];
@@ -267,7 +269,7 @@ export function computePerformance(
       holding.quantity != null &&
       holding.quantity > 0
     ) {
-      const cbRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency);
+      const cbRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency, fxRates);
       const costInBase = holding.costBasis * cbRate;
       totalCostBasis += costInBase;
       coveredValue += valueBase;
@@ -539,4 +541,130 @@ export function generateRichInsights(
   }
 
   return insights.slice(0, 8);
+}
+
+// ── TWRR & Sharpe ────────────────────────────────────────────────────────────
+
+export interface TWRRResult {
+  twrr: number;
+  annualizedTwrr: number;
+}
+
+/**
+ * Time-weighted rate of return (TWRR).
+ * Uses portfolio value snapshots and external cash flow transactions (sell, dividend).
+ * Returns null if fewer than 2 snapshots.
+ */
+export function computeTWRR(
+  valueHistory: { timestamp: string; valueBase: number }[],
+  transactions: Transaction[],
+): TWRRResult | null {
+  if (valueHistory.length < 2) return null;
+
+  // Build cash flow events sorted by date
+  const cashFlows = transactions
+    .filter((t) => t.type === 'sell' || t.type === 'dividend')
+    .map((t) => ({ date: t.date, amount: t.totalAmount }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // If no cash flows, simple return
+  if (cashFlows.length === 0) {
+    const startVal = valueHistory[0].valueBase;
+    const endVal = valueHistory[valueHistory.length - 1].valueBase;
+    if (startVal <= 0) return null;
+    const twrr = (endVal / startVal) - 1;
+    const totalDays = (new Date(valueHistory[valueHistory.length - 1].timestamp).getTime() -
+      new Date(valueHistory[0].timestamp).getTime()) / (1000 * 60 * 60 * 24);
+    const annualizedTwrr = totalDays > 0 ? Math.pow(1 + twrr, 365 / totalDays) - 1 : twrr;
+    return { twrr, annualizedTwrr };
+  }
+
+  // Find nearest snapshot value for a given timestamp
+  const findNearestValue = (ts: string): number => {
+    let best = valueHistory[0];
+    let bestDist = Math.abs(new Date(best.timestamp).getTime() - new Date(ts).getTime());
+    for (const v of valueHistory) {
+      const dist = Math.abs(new Date(v.timestamp).getTime() - new Date(ts).getTime());
+      if (dist < bestDist) {
+        best = v;
+        bestDist = dist;
+      }
+    }
+    return best.valueBase;
+  };
+
+  // Chain sub-period returns
+  let chainedReturn = 1;
+  let prevValue = valueHistory[0].valueBase;
+  if (prevValue <= 0) return null;
+
+  for (const cf of cashFlows) {
+    const valueAtCf = findNearestValue(cf.date);
+    if (prevValue > 0) {
+      const subReturn = valueAtCf / prevValue;
+      chainedReturn *= subReturn;
+    }
+    // After cash flow, the starting value for next period is value at CF
+    // (cash flows are withdrawals/income that don't affect portfolio value directly
+    //  since they're already reflected in the snapshot)
+    prevValue = valueAtCf;
+  }
+
+  // Final sub-period: from last cash flow to end
+  const endVal = valueHistory[valueHistory.length - 1].valueBase;
+  if (prevValue > 0) {
+    chainedReturn *= endVal / prevValue;
+  }
+
+  const twrr = chainedReturn - 1;
+  const totalDays = (new Date(valueHistory[valueHistory.length - 1].timestamp).getTime() -
+    new Date(valueHistory[0].timestamp).getTime()) / (1000 * 60 * 60 * 24);
+  const annualizedTwrr = totalDays > 0 ? Math.pow(1 + twrr, 365 / totalDays) - 1 : twrr;
+  return { twrr, annualizedTwrr };
+}
+
+export interface SharpeResult {
+  sharpe: number;
+  annualizedReturn: number;
+  annualizedVolatility: number;
+}
+
+/**
+ * Sharpe ratio from portfolio value snapshots.
+ * Returns null if fewer than 20 data points (not enough for meaningful stats).
+ */
+export function computeSharpe(
+  valueHistory: { timestamp: string; valueBase: number }[],
+  riskFreeRate: number = 0.045,
+): SharpeResult | null {
+  if (valueHistory.length < 20) return null;
+
+  // Compute period returns
+  const returns: number[] = [];
+  const gaps: number[] = [];
+  for (let i = 1; i < valueHistory.length; i++) {
+    const prev = valueHistory[i - 1].valueBase;
+    if (prev <= 0) continue;
+    returns.push((valueHistory[i].valueBase - prev) / prev);
+    const gapMs = new Date(valueHistory[i].timestamp).getTime() -
+      new Date(valueHistory[i - 1].timestamp).getTime();
+    gaps.push(gapMs / (1000 * 60 * 60 * 24));
+  }
+
+  if (returns.length < 10) return null;
+
+  const meanReturn = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + Math.pow(r - meanReturn, 2), 0) / returns.length;
+  const stdDev = Math.sqrt(variance);
+
+  if (stdDev === 0) return { sharpe: 0, annualizedReturn: 0, annualizedVolatility: 0 };
+
+  const avgGapDays = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+  const periodsPerYear = avgGapDays > 0 ? 365 / avgGapDays : 252;
+
+  const annualizedReturn = meanReturn * periodsPerYear;
+  const annualizedVolatility = stdDev * Math.sqrt(periodsPerYear);
+  const sharpe = (annualizedReturn - riskFreeRate) / annualizedVolatility;
+
+  return { sharpe, annualizedReturn, annualizedVolatility };
 }

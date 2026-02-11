@@ -55,10 +55,10 @@ async function batchHistoricalPrices(
 
     let points: HistoricalPricePoint[];
     if (contractKey === 'native') {
-      const { baseUrl, apiKey } = await import('./coingecko').then((m) => m.getCoinGeckoConfig());
+      const { baseUrl, apiKey, headerName } = await import('./coingecko').then((m) => m.getCoinGeckoConfig());
       const url = `${baseUrl}/coins/ethereum/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
       const headers: Record<string, string> = {};
-      if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+      if (apiKey) headers[headerName] = apiKey;
       const res = await fetch(url, { headers });
       if (!res.ok) continue;
       const data = (await res.json()) as { prices?: [number, number][] };

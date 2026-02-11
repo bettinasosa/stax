@@ -78,6 +78,22 @@ const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS idx_portfolio_value_snapshot_portfolio_time ON portfolio_value_snapshot(portfolio_id, timestamp);
   `,
   `ALTER TABLE portfolio ADD COLUMN archived_at TEXT;`,
+  `
+  CREATE TABLE IF NOT EXISTS "transaction" (
+    id TEXT PRIMARY KEY NOT NULL,
+    holding_id TEXT NOT NULL REFERENCES holding(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK(type IN ('sell','dividend')),
+    date TEXT NOT NULL,
+    quantity REAL,
+    price_per_unit REAL,
+    total_amount REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    realized_gain_loss REAL,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_transaction_holding ON "transaction"(holding_id);
+  `,
 ];
 
 /** Valid UUID v4 format so Zod .uuid() accepts it. */
@@ -90,6 +106,7 @@ const LEGACY_PORTFOLIO_ID = '00000000-0000-0000-0000-000000000001';
  */
 export async function clearAllData(db: SQLiteDatabase): Promise<void> {
   await db.runAsync('DELETE FROM event');
+  await db.runAsync('DELETE FROM "transaction"');
   await db.runAsync('DELETE FROM lot');
   await db.runAsync('DELETE FROM holding');
   await db.runAsync('DELETE FROM price_point');

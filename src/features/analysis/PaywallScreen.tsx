@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,11 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import type { PurchasesPackage } from 'react-native-purchases';
+import { getOfferings, isRevenueCatConfigured } from '../../services/revenuecat';
 import { useEntitlements } from './useEntitlements';
 import { theme } from '../../utils/theme';
+import { trackPaywallViewed, trackPurchaseCompleted, trackTrialStarted } from '../../services/analytics';
 
 interface PaywallScreenProps {
   trigger?: string;
@@ -17,14 +20,59 @@ interface PaywallScreenProps {
   onSuccess?: () => void;
 }
 
+const FEATURES = [
+  'Unlimited holdings',
+  'Analyst sentiment & price targets',
+  'Insider buying/selling signals',
+  'Deep allocation analysis (country, sector, currency)',
+  'Concentration warnings and Stax Score',
+  'Real estate & fixed income analytics',
+  'Unlimited reminder schedules',
+  'Time-weighted return (TWRR) & Sharpe ratio',
+  'Compare against S&P 500, NASDAQ, Bonds & Gold',
+  'Dividend yield analytics & income calendar',
+  'PDF portfolio report',
+  'Net worth tracking with liabilities',
+  'Side-by-side portfolio comparison',
+  'Cloud backup & restore',
+];
+
 /**
- * Paywall: Pro value prop, restore purchases, dismiss. Shown when user hits Analysis, 16th holding, or second schedule.
+ * Paywall with subscription packages, dynamic pricing, restore, and dismiss.
+ * Shown when the user hits a Pro-gated feature or free limit.
  */
 export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenProps) {
-  const { isPro, loading, restorePurchases } = useEntitlements();
+  const { isPro, loading, purchase, restorePurchases } = useEntitlements();
+  const [packages, setPackages] = useState<PurchasesPackage[]>([]);
+  const [selectedPkg, setSelectedPkg] = useState<PurchasesPackage | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [loadingOfferings, setLoadingOfferings] = useState(true);
 
-  if (loading && !isPro) {
+  /* Fetch available packages from RevenueCat on mount */
+  useEffect(() => {
+    let mounted = true;
+    trackPaywallViewed(trigger ?? 'unknown');
+    getOfferings().then((offerings) => {
+      if (!mounted) return;
+      const available = offerings?.current?.availablePackages ?? [];
+      setPackages(available);
+      // Pre-select annual if available, otherwise first package
+      const annual = available.find((p) => p.packageType === 'ANNUAL');
+      setSelectedPkg(annual ?? available[0] ?? null);
+      setLoadingOfferings(false);
+    });
+    return () => { mounted = false; };
+  }, [trigger]);
+
+  /* If already Pro, fire success and render nothing */
+  if (isPro) {
+    if (onSuccess) onSuccess();
+    return null;
+  }
+
+  /* Loading state */
+  if (loading || loadingOfferings) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.textPrimary} />
@@ -32,10 +80,31 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
     );
   }
 
-  if (isPro) {
-    if (onSuccess) onSuccess();
-    return null;
-  }
+  const handlePurchase = async () => {
+    if (!selectedPkg) return;
+    setPurchasing(true);
+    try {
+      const ok = await purchase(selectedPkg);
+      if (ok) {
+        const hasFreeTrial = selectedPkg.product?.introPrice != null;
+        if (hasFreeTrial) {
+          trackTrialStarted();
+        } else {
+          trackPurchaseCompleted();
+        }
+        if (onSuccess) onSuccess();
+      } else {
+        Alert.alert(
+          'Purchase not activated',
+          'The transaction did not activate Stax Pro yet. If you are testing in Expo Go (Browser Mode), use a development build or TestFlight to validate in-app purchases reliably.'
+        );
+      }
+    } catch {
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setPurchasing(false);
+    }
+  };
 
   const handleRestore = async () => {
     setRestoring(true);
@@ -53,35 +122,94 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
     }
   };
 
+  const busy = purchasing || restoring;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Header */}
       <Text style={styles.title}>Stax Pro</Text>
       <Text style={styles.subtitle}>Unlock full portfolio insights</Text>
-      <View style={styles.bullets}>
-        <Text style={styles.bullet}>• Unlimited holdings</Text>
-        <Text style={styles.bullet}>• Analyst sentiment & price targets</Text>
-        <Text style={styles.bullet}>• Insider buying/selling signals</Text>
-        <Text style={styles.bullet}>• Deep allocation analysis (country, sector, currency)</Text>
-        <Text style={styles.bullet}>• Concentration warnings and Stax Score</Text>
-        <Text style={styles.bullet}>• Real estate & fixed income analytics</Text>
-        <Text style={styles.bullet}>• Unlimited reminder schedules</Text>
+
+      {/* Feature bullets */}
+      <View style={styles.features}>
+        {FEATURES.map((f) => (
+          <View key={f} style={styles.featureRow}>
+            <Text style={styles.checkmark}>{'✓'}</Text>
+            <Text style={styles.featureText}>{f}</Text>
+          </View>
+        ))}
       </View>
-      {trigger && (
-        <Text style={styles.trigger}>You’ve hit a free limit: {trigger}</Text>
+
+      {/* Trigger hint */}
+      {trigger ? (
+        <Text style={styles.trigger}>You've hit a free limit: {trigger}</Text>
+      ) : null}
+
+      {/* Package selector */}
+      {packages.length > 0 ? (
+        <View style={styles.packages}>
+          {packages.map((pkg) => {
+            const selected = pkg.identifier === selectedPkg?.identifier;
+            return (
+              <TouchableOpacity
+                key={pkg.identifier}
+                style={[styles.packageCard, selected && styles.packageCardSelected]}
+                onPress={() => setSelectedPkg(pkg)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.packageTitle, selected && styles.packageTitleSelected]}>
+                  {packageLabel(pkg)}
+                </Text>
+                <Text style={[styles.packagePrice, selected && styles.packagePriceSelected]}>
+                  {pkg.product.priceString}
+                  {periodSuffix(pkg)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={styles.noPackages}>
+          <Text style={styles.noPackagesText}>
+            {isRevenueCatConfigured()
+              ? 'No subscription plans available right now. Please try again later.'
+              : 'Subscription pricing unavailable in this build.'}
+          </Text>
+        </View>
       )}
+
+      {/* Subscribe CTA */}
       <TouchableOpacity
-        style={[styles.button, restoring && styles.buttonDisabled]}
-        onPress={handleRestore}
-        disabled={restoring}
+        style={[styles.subscribeBtn, busy && styles.buttonDisabled]}
+        onPress={handlePurchase}
+        disabled={busy || !selectedPkg}
+        activeOpacity={0.8}
       >
-        {restoring ? (
+        {purchasing ? (
           <ActivityIndicator color={theme.colors.background} size="small" />
         ) : (
-          <Text style={styles.buttonText}>Restore purchases</Text>
+          <Text style={styles.subscribeBtnText}>
+            {selectedPkg ? `Subscribe ${selectedPkg.product.priceString}${periodSuffix(selectedPkg)}` : 'Subscribe'}
+          </Text>
         )}
       </TouchableOpacity>
+
+      {/* Restore purchases */}
+      <TouchableOpacity
+        style={styles.secondaryBtn}
+        onPress={handleRestore}
+        disabled={busy}
+      >
+        {restoring ? (
+          <ActivityIndicator color={theme.colors.textSecondary} size="small" />
+        ) : (
+          <Text style={styles.secondaryBtnText}>Restore purchases</Text>
+        )}
+      </TouchableOpacity>
+
+      {/* Dismiss */}
       {onDismiss && (
-        <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss}>
+        <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss} disabled={busy}>
           <Text style={styles.dismissText}>Maybe later</Text>
         </TouchableOpacity>
       )}
@@ -89,13 +217,51 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
   );
 }
 
+/* ---------- helpers ---------- */
+
+/** Human-friendly label for a package type. */
+function packageLabel(pkg: PurchasesPackage): string {
+  switch (pkg.packageType) {
+    case 'ANNUAL': return 'Annual';
+    case 'MONTHLY': return 'Monthly';
+    case 'SIX_MONTH': return '6 Months';
+    case 'THREE_MONTH': return '3 Months';
+    case 'TWO_MONTH': return '2 Months';
+    case 'WEEKLY': return 'Weekly';
+    case 'LIFETIME': return 'Lifetime';
+    default: return pkg.identifier;
+  }
+}
+
+/** Short period suffix for display next to price. */
+function periodSuffix(pkg: PurchasesPackage): string {
+  switch (pkg.packageType) {
+    case 'ANNUAL': return '/yr';
+    case 'MONTHLY': return '/mo';
+    case 'SIX_MONTH': return '/6mo';
+    case 'THREE_MONTH': return '/3mo';
+    case 'TWO_MONTH': return '/2mo';
+    case 'WEEKLY': return '/wk';
+    case 'LIFETIME': return '';
+    default: return '';
+  }
+}
+
+/* ---------- styles ---------- */
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   content: {
     padding: theme.layout.screenPadding,
     paddingTop: theme.spacing.xxl,
+    paddingBottom: theme.spacing.xxl,
   },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+  },
   title: {
     ...theme.typography.title,
     color: theme.colors.textPrimary,
@@ -106,32 +272,93 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginBottom: theme.spacing.lg,
   },
-  bullets: { marginBottom: theme.spacing.lg },
-  bullet: {
+  /* Features */
+  features: { marginBottom: theme.spacing.lg },
+  featureRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  checkmark: {
+    color: theme.colors.positive,
+    fontSize: 16,
+    fontWeight: '700',
+    marginRight: 10,
+    width: 20,
+    textAlign: 'center',
+  },
+  featureText: {
     ...theme.typography.body,
-    marginBottom: theme.spacing.xs,
     color: theme.colors.textPrimary,
+    flex: 1,
   },
   trigger: {
     ...theme.typography.caption,
     color: theme.colors.textTertiary,
     marginBottom: theme.spacing.lg,
   },
-  button: {
+  /* Package selector */
+  packages: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: theme.spacing.lg,
+  },
+  packageCard: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+    borderRadius: theme.layout.cardRadius,
+    padding: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  packageCardSelected: {
+    borderColor: theme.colors.white,
+    backgroundColor: theme.colors.surface,
+  },
+  packageTitle: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.textSecondary,
+    marginBottom: 4,
+  },
+  packageTitleSelected: { color: theme.colors.textPrimary },
+  packagePrice: {
+    ...theme.typography.bodySemi,
+    color: theme.colors.textSecondary,
+  },
+  packagePriceSelected: { color: theme.colors.textPrimary },
+  /* Buttons */
+  subscribeBtn: {
     backgroundColor: theme.colors.white,
-    padding: theme.layout.screenPadding,
+    padding: theme.spacing.sm,
     borderRadius: theme.layout.cardRadius,
     alignItems: 'center',
     marginBottom: theme.spacing.sm,
   },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: {
+  subscribeBtnText: {
     color: theme.colors.background,
-    ...theme.typography.bodyMedium,
+    ...theme.typography.bodySemi,
   },
-  dismissBtn: { alignItems: 'center', padding: theme.spacing.sm },
-  dismissText: {
+  buttonDisabled: { opacity: 0.6 },
+  secondaryBtn: {
+    alignItems: 'center',
+    padding: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+  },
+  secondaryBtnText: {
     ...theme.typography.caption,
     color: theme.colors.textSecondary,
+  },
+  dismissBtn: { alignItems: 'center', padding: theme.spacing.xs },
+  dismissText: {
+    ...theme.typography.caption,
+    color: theme.colors.textTertiary,
+  },
+  noPackages: {
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.layout.cardRadius,
+    marginBottom: theme.spacing.lg,
+  },
+  noPackagesText: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+    textAlign: 'center' as const,
   },
 });

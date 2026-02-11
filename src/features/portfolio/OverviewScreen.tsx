@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Dimensions,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -20,9 +21,15 @@ import {
   portfolioTotalBase,
   attributionFromChange,
   computePortfolioStats,
+  totalRealizedGainLoss,
+  totalDividendIncome,
+  portfolioInceptionReturn,
   type HoldingWithValue,
 } from './portfolioUtils';
 import { PortfolioStatsCard } from './PortfolioStatsCard';
+import { useEntitlements } from '../analysis/useEntitlements';
+import { PaywallScreen } from '../analysis/PaywallScreen';
+import { exportPortfolioPDF } from '../../services/pdfReport';
 import { formatMoney } from '../../utils/money';
 import { theme } from '../../utils/theme';
 import { holdingRepo, eventRepo } from '../../data';
@@ -62,11 +69,17 @@ export function OverviewScreen() {
     error,
     refresh,
     activePortfolioId,
+    transactions,
     valueHistory,
+    fxRates,
   } = usePortfolio();
+  const { isPro } = useEntitlements();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
+  const [showPdfPaywall, setShowPdfPaywall] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [changeMode, setChangeMode] = useState<'day' | 'inception'>('inception');
 
   /** Unique asset types present in the current portfolio (for filter pills). */
   const availableTypes = useMemo(() => {
@@ -80,24 +93,33 @@ export function OverviewScreen() {
     [holdings, typeFilter]
   );
 
-  const withValues = holdingsWithValues(filteredHoldings, pricesBySymbol, baseCurrency);
+  const withValues = holdingsWithValues(filteredHoldings, pricesBySymbol, baseCurrency, fxRates);
   const top3 = withValues.slice(0, 3);
-  const change = portfolioChange(filteredHoldings, pricesBySymbol, baseCurrency);
+  const change = portfolioChange(filteredHoldings, pricesBySymbol, baseCurrency, fxRates);
 
-  const totalRef = portfolioTotalRef(filteredHoldings, pricesBySymbol, baseCurrency);
-  const totalNow = portfolioTotalBase(filteredHoldings, pricesBySymbol, baseCurrency);
+  const totalRef = portfolioTotalRef(filteredHoldings, pricesBySymbol, baseCurrency, fxRates);
+  const totalNow = portfolioTotalBase(filteredHoldings, pricesBySymbol, baseCurrency, fxRates);
   const attribution = useMemo(
-    () => attributionFromChange(filteredHoldings, pricesBySymbol, baseCurrency),
-    [filteredHoldings, pricesBySymbol, baseCurrency]
+    () => attributionFromChange(filteredHoldings, pricesBySymbol, baseCurrency, fxRates),
+    [filteredHoldings, pricesBySymbol, baseCurrency, fxRates]
   );
   const topContributors = attribution.rows.filter((r) => r.contributionAbs > 0).slice(0, 3);
   const topDetractors = attribution.rows.filter((r) => r.contributionAbs < 0).slice(0, 3);
   const showAttribution = totalRef > 0 && attribution.rows.some((r) => r.contributionAbs !== 0);
 
   const portfolioStats = useMemo(
-    () => computePortfolioStats(filteredHoldings, pricesBySymbol, baseCurrency),
-    [filteredHoldings, pricesBySymbol, baseCurrency]
+    () => computePortfolioStats(filteredHoldings, pricesBySymbol, baseCurrency, fxRates),
+    [filteredHoldings, pricesBySymbol, baseCurrency, fxRates]
   );
+
+  const inceptionReturn = useMemo(
+    () => portfolioInceptionReturn(filteredHoldings, pricesBySymbol, baseCurrency, fxRates),
+    [filteredHoldings, pricesBySymbol, baseCurrency, fxRates]
+  );
+
+  const realizedPnL = useMemo(() => totalRealizedGainLoss(transactions), [transactions]);
+  const dividendIncome = useMemo(() => totalDividendIncome(transactions), [transactions]);
+  const hasTransactionData = realizedPnL !== 0 || dividendIncome > 0;
 
   /** Number of days the chart covers (for the label below the chart). */
   const chartDays = useMemo(() => {
@@ -151,7 +173,12 @@ export function OverviewScreen() {
       datasets: [
         { data, color: () => theme.colors.white, strokeWidth: 3 },
         // Invisible padding dataset to expand Y range
-        { data: [paddedMin, paddedMax], color: () => 'transparent', strokeWidth: 0, withDots: false },
+        {
+          data: [paddedMin, paddedMax],
+          color: () => 'transparent',
+          strokeWidth: 0,
+          withDots: false,
+        },
       ],
     };
   }, [valueHistory, totalRef, totalNow]);
@@ -182,6 +209,29 @@ export function OverviewScreen() {
     else setUpcoming([]);
   }, [holdings.length, loadUpcoming]);
 
+  const handleExportPDF = async () => {
+    if (!isPro) {
+      (navigation as any).navigate('Paywall', { trigger: 'PDF Report requires Stax Pro' });
+      return;
+    }
+    if (!portfolio) return;
+    setExporting(true);
+    try {
+      await exportPortfolioPDF({
+        portfolioName: portfolio.name,
+        baseCurrency,
+        holdings,
+        pricesBySymbol,
+        transactions,
+        fxRates,
+      });
+    } catch {
+      Alert.alert('Error', 'Failed to generate PDF report.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (error) {
     return (
       <View style={styles.center}>
@@ -207,7 +257,11 @@ export function OverviewScreen() {
         style={styles.container}
         contentContainerStyle={styles.emptyContainer}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={refresh}
+            tintColor={theme.colors.textPrimary}
+          />
         }
       >
         <Text style={styles.emptyTitle}>No holdings yet</Text>
@@ -216,7 +270,11 @@ export function OverviewScreen() {
         </Text>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', { screen: 'AddAsset' })}
+          onPress={() =>
+            (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', {
+              screen: 'AddAsset',
+            })
+          }
         >
           <Text style={styles.primaryButtonText}>Add Holding</Text>
         </TouchableOpacity>
@@ -224,16 +282,34 @@ export function OverviewScreen() {
     );
   }
 
-  const changePct =
-    change != null
-      ? `${change.pct >= 0 ? '+' : ''}${(change.pct * 100).toFixed(2)}%`
+  // Day change values
+  const dayChangePct =
+    change != null ? `${change.pct >= 0 ? '+' : ''}${(change.pct * 100).toFixed(2)}%` : null;
+  const dayChangeColor =
+    change != null && change.pnl >= 0 ? theme.colors.positive : theme.colors.negative;
+  const dayChangeArrow = change != null && change.pnl >= 0 ? '▲' : '▼';
+  const dayChangeAmount = change != null ? formatMoney(change.pnl, baseCurrency) : null;
+
+  // Since-inception values
+  const inceptionPct =
+    inceptionReturn != null
+      ? `${inceptionReturn.returnPct >= 0 ? '+' : ''}${inceptionReturn.returnPct.toFixed(2)}%`
       : null;
-  const changeColor = change != null && change.pnl >= 0 ? theme.colors.positive : theme.colors.negative;
-  const changeArrow = change != null && change.pnl >= 0 ? '▲' : '▼';
-  const changeAmount =
-    change != null
-      ? formatMoney(change.pnl, baseCurrency)
-      : null;
+  const inceptionColor =
+    inceptionReturn != null && inceptionReturn.gainLoss >= 0
+      ? theme.colors.positive
+      : theme.colors.negative;
+  const inceptionArrow =
+    inceptionReturn != null && inceptionReturn.gainLoss >= 0 ? '▲' : '▼';
+  const inceptionAmount =
+    inceptionReturn != null ? formatMoney(inceptionReturn.gainLoss, baseCurrency) : null;
+
+  // Active change display (based on toggle)
+  const activeChangePct = changeMode === 'inception' ? inceptionPct : dayChangePct;
+  const activeChangeColor = changeMode === 'inception' ? inceptionColor : dayChangeColor;
+  const activeChangeArrow = changeMode === 'inception' ? inceptionArrow : dayChangeArrow;
+  const activeChangeAmount = changeMode === 'inception' ? inceptionAmount : dayChangeAmount;
+  const changeModeLabel = changeMode === 'inception' ? 'Since inception' : 'Day change';
   const formatUpcomingDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -251,9 +327,13 @@ export function OverviewScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
-        }
+      refreshControl={
+        <RefreshControl
+          refreshing={loading}
+          onRefresh={refresh}
+          tintColor={theme.colors.textPrimary}
+        />
+      }
     >
       {/* ── Type filter pills ── */}
       {availableTypes.length > 1 && (
@@ -267,7 +347,9 @@ export function OverviewScreen() {
             style={[styles.filterPill, typeFilter === 'all' && styles.filterPillActive]}
             onPress={() => setTypeFilter('all')}
           >
-            <Text style={[styles.filterPillText, typeFilter === 'all' && styles.filterPillTextActive]}>
+            <Text
+              style={[styles.filterPillText, typeFilter === 'all' && styles.filterPillTextActive]}
+            >
               All
             </Text>
           </TouchableOpacity>
@@ -277,7 +359,9 @@ export function OverviewScreen() {
               style={[styles.filterPill, typeFilter === t && styles.filterPillActive]}
               onPress={() => setTypeFilter(t)}
             >
-              <Text style={[styles.filterPillText, typeFilter === t && styles.filterPillTextActive]}>
+              <Text
+                style={[styles.filterPillText, typeFilter === t && styles.filterPillTextActive]}
+              >
                 {ASSET_TYPE_LABELS[t]}
               </Text>
             </TouchableOpacity>
@@ -287,14 +371,50 @@ export function OverviewScreen() {
 
       <View style={styles.heroSection}>
         <Text style={styles.totalValue}>{formatMoney(totalNow, baseCurrency)}</Text>
-        {changeAmount != null && changePct != null && (
+        {activeChangeAmount != null && activeChangePct != null && (
           <View style={styles.changeRow}>
-            <Text style={[styles.changeAmount, { color: changeColor }]}>
-              {changeAmount}
+            <Text style={[styles.changeAmount, { color: activeChangeColor }]}>
+              {activeChangeAmount}
             </Text>
-            <Text style={[styles.changePct, { color: changeColor }]}>
-              {changeArrow} {changePct}
+            <Text style={[styles.changePct, { color: activeChangeColor }]}>
+              {activeChangeArrow} {activeChangePct}
             </Text>
+          </View>
+        )}
+        {/* Day / Inception toggle */}
+        {(dayChangeAmount != null || inceptionAmount != null) && (
+          <View style={styles.changeModeRow}>
+            <TouchableOpacity
+              style={[styles.changeModePill, changeMode === 'day' && styles.changeModePillActive]}
+              onPress={() => setChangeMode('day')}
+            >
+              <Text
+                style={[
+                  styles.changeModePillText,
+                  changeMode === 'day' && styles.changeModePillTextActive,
+                ]}
+              >
+                Day
+              </Text>
+            </TouchableOpacity>
+            {inceptionReturn != null && (
+              <TouchableOpacity
+                style={[
+                  styles.changeModePill,
+                  changeMode === 'inception' && styles.changeModePillActive,
+                ]}
+                onPress={() => setChangeMode('inception')}
+              >
+                <Text
+                  style={[
+                    styles.changeModePillText,
+                    changeMode === 'inception' && styles.changeModePillTextActive,
+                  ]}
+                >
+                  Since inception
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -317,7 +437,6 @@ export function OverviewScreen() {
               propsForDots: { r: 0 },
               propsForLabels: { fontSize: 10 },
             }}
-            bezier
             withShadow={false}
             withInnerLines={false}
             withOuterLines={false}
@@ -334,9 +453,50 @@ export function OverviewScreen() {
         </View>
       )}
 
+      <TouchableOpacity
+        style={styles.addHoldingButton}
+        onPress={() =>
+          (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', {
+            screen: 'AddAsset',
+          })
+        }
+      >
+        <Text style={styles.addHoldingButtonText}>Add Holding</Text>
+      </TouchableOpacity>
+
       {/* Portfolio Summary Stats */}
       {filteredHoldings.length > 0 && (
         <PortfolioStatsCard stats={portfolioStats} baseCurrency={baseCurrency} />
+      )}
+
+      {hasTransactionData && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Income & Realized P&L</Text>
+          {realizedPnL !== 0 && (
+            <View style={styles.topRow}>
+              <Text style={styles.topName}>Realized P&L</Text>
+              <Text
+                style={[
+                  styles.topValue,
+                  realizedPnL >= 0
+                    ? { color: theme.colors.positive }
+                    : { color: theme.colors.negative },
+                ]}
+              >
+                {realizedPnL >= 0 ? '+' : ''}
+                {formatMoney(realizedPnL, baseCurrency)}
+              </Text>
+            </View>
+          )}
+          {dividendIncome > 0 && (
+            <View style={styles.topRow}>
+              <Text style={styles.topName}>Dividend income</Text>
+              <Text style={[styles.topValue, { color: theme.colors.positive }]}>
+                +{formatMoney(dividendIncome, baseCurrency)}
+              </Text>
+            </View>
+          )}
+        </View>
       )}
 
       {showAttribution && (topContributors.length > 0 || topDetractors.length > 0) && (
@@ -350,10 +510,14 @@ export function OverviewScreen() {
               <Text style={styles.attributionLabel}>Top contributors</Text>
               {topContributors.map((r) => (
                 <View key={r.holdingId} style={styles.attributionRow}>
-                  <Text style={styles.attributionName} numberOfLines={1}>{r.holdingName}</Text>
+                  <Text style={styles.attributionName} numberOfLines={1}>
+                    {r.holdingName}
+                  </Text>
                   <Text style={styles.attributionPositive}>
                     +{formatMoney(r.contributionAbs, baseCurrency)}
-                    {r.returnPct != null ? ` (${r.returnPct >= 0 ? '+' : ''}${r.returnPct.toFixed(2)}%)` : ''}
+                    {r.returnPct != null
+                      ? ` (${r.returnPct >= 0 ? '+' : ''}${r.returnPct.toFixed(2)}%)`
+                      : ''}
                   </Text>
                 </View>
               ))}
@@ -364,7 +528,9 @@ export function OverviewScreen() {
               <Text style={styles.attributionLabel}>Top detractors</Text>
               {topDetractors.map((r) => (
                 <View key={r.holdingId} style={styles.attributionRow}>
-                  <Text style={styles.attributionName} numberOfLines={1}>{r.holdingName}</Text>
+                  <Text style={styles.attributionName} numberOfLines={1}>
+                    {r.holdingName}
+                  </Text>
                   <Text style={styles.attributionNegative}>
                     {formatMoney(r.contributionAbs, baseCurrency)}
                     {r.returnPct != null ? ` (${r.returnPct.toFixed(2)}%)` : ''}
@@ -399,8 +565,9 @@ export function OverviewScreen() {
               <Text style={styles.topValue}>
                 {formatHoldingValueDisplay(
                   item.holding,
-                  item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
-                  baseCurrency
+                  item.holding.symbol ? (pricesBySymbol.get(item.holding.symbol) ?? null) : null,
+                  baseCurrency,
+                  fxRates
                 )}{' '}
                 ({item.weightPercent.toFixed(1)}%)
               </Text>
@@ -420,7 +587,9 @@ export function OverviewScreen() {
               activeOpacity={0.7}
             >
               <View style={styles.upcomingLeft}>
-                <Text style={styles.upcomingName} numberOfLines={1}>{holding.name}</Text>
+                <Text style={styles.upcomingName} numberOfLines={1}>
+                  {holding.name}
+                </Text>
                 <Text style={styles.upcomingKind}>{event.kind.replace(/_/g, ' ')}</Text>
               </View>
               <Text style={styles.upcomingDate}>{formatUpcomingDate(event.date)}</Text>
@@ -435,16 +604,19 @@ export function OverviewScreen() {
         </View>
       )}
 
+      {/* Export PDF (Pro) */}
       <TouchableOpacity
-        style={styles.addHoldingButton}
-        onPress={() => (navigation as { navigate: (s: string, p?: object) => void }).navigate('Holdings', { screen: 'AddAsset' })}
+        style={[styles.exportPdfButton, exporting && styles.buttonDisabled]}
+        onPress={handleExportPDF}
+        disabled={exporting}
       >
-        <Text style={styles.addHoldingButtonText}>Add Holding</Text>
+        <Text style={styles.exportPdfText}>
+          {exporting ? 'Generating...' : 'Export PDF Report'}
+          {!isPro ? ' (Pro)' : ''}
+        </Text>
       </TouchableOpacity>
 
-      <Text style={styles.updated}>
-        Prices refresh on pull and when you add or edit holdings.
-      </Text>
+      <Text style={styles.updated}>Prices refresh on pull and when you add or edit holdings.</Text>
     </ScrollView>
   );
 }
@@ -501,6 +673,32 @@ const styles = StyleSheet.create({
   },
   changePct: {
     ...theme.typography.body,
+  },
+  changeModeRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.sm,
+  },
+  changeModePill: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  changeModePillActive: {
+    backgroundColor: theme.colors.textPrimary,
+    borderColor: theme.colors.textPrimary,
+  },
+  changeModePillText: {
+    ...theme.typography.small,
+    color: theme.colors.textSecondary,
+  },
+  changeModePillTextActive: {
+    ...theme.typography.small,
+    color: theme.colors.background,
+    fontWeight: '600',
   },
   chartSection: {
     marginBottom: theme.spacing.sm,
@@ -644,4 +842,18 @@ const styles = StyleSheet.create({
     color: theme.colors.textTertiary,
     marginTop: theme.spacing.xs,
   },
+  exportPdfButton: {
+    marginBottom: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.layout.cardRadius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+  },
+  exportPdfText: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+  },
+  buttonDisabled: { opacity: 0.6 },
 });

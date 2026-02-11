@@ -1,5 +1,9 @@
 import { Platform } from 'react-native';
-import Purchases, { type CustomerInfo } from 'react-native-purchases';
+import Purchases, {
+  type CustomerInfo,
+  type PurchasesOfferings,
+  type PurchasesPackage,
+} from 'react-native-purchases';
 
 const ENTITLEMENT_PRO = 'pro';
 const API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY_IOS ?? '';
@@ -55,6 +59,35 @@ export async function restorePurchases(): Promise<CustomerInfo | null> {
     return await Purchases.restorePurchases();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Fetch available subscription offerings (packages with pricing).
+ */
+export async function getOfferings(): Promise<PurchasesOfferings | null> {
+  if (!API_KEY_IOS && !API_KEY_ANDROID) return null;
+  try {
+    return await Purchases.getOfferings();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Purchase a subscription package. Returns CustomerInfo on success, null if
+ * the user cancelled, or throws on unexpected errors.
+ */
+export async function purchasePackage(
+  pkg: PurchasesPackage,
+): Promise<CustomerInfo | null> {
+  try {
+    const { customerInfo } = await Purchases.purchasePackage(pkg);
+    return customerInfo;
+  } catch (e: unknown) {
+    const err = e as { userCancelled?: boolean };
+    if (err.userCancelled) return null;
+    throw e;
   }
 }
 

@@ -17,7 +17,10 @@ export type AnalyticsEvent =
   | { name: 'purchase_completed' }
   | { name: 'analysis_viewed' }
   | { name: 'event_created' }
-  | { name: 'notification_enabled' };
+  | { name: 'notification_enabled' }
+  | { name: 'csv_export_completed'; count: number }
+  | { name: 'sell_recorded'; symbol: string; quantity: number }
+  | { name: 'dividend_logged'; symbol: string; amount: number };
 
 function logEvent(event: AnalyticsEvent): void {
   if (__DEV__) {
@@ -80,4 +83,16 @@ export function trackEventCreated(): void {
 
 export function trackNotificationEnabled(): void {
   logEvent({ name: 'notification_enabled' });
+}
+
+export function trackCsvExportCompleted(count: number): void {
+  logEvent({ name: 'csv_export_completed', count });
+}
+
+export function trackSellRecorded(symbol: string, quantity: number): void {
+  logEvent({ name: 'sell_recorded', symbol, quantity });
+}
+
+export function trackDividendLogged(symbol: string, amount: number): void {
+  logEvent({ name: 'dividend_logged', symbol, amount });
 }

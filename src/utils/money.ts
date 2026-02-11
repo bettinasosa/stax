@@ -18,17 +18,26 @@ export function formatWeight(weightPercent: number): string {
 }
 
 /**
- * MVP: FX rate to base currency. Returns 1.0 for same currency, else a simple placeholder.
- * Replace with real FX provider later.
+ * FX rate to convert from `currency` to `baseCurrency`.
+ * When a live `rates` map is provided (from fetchFxRates), uses real rates.
+ * Falls back to hardcoded stubs when rates are unavailable.
  */
-export function getRateToBase(currency: string, baseCurrency: string): number {
+export function getRateToBase(
+  currency: string,
+  baseCurrency: string,
+  rates?: Record<string, number>,
+): number {
   if (currency === baseCurrency) return 1;
-  const rates: Record<string, number> = {
-    USD: 1,
-    EUR: 1.05,
-    GBP: 1.27,
-  };
-  const from = rates[currency] ?? 1;
-  const to = rates[baseCurrency] ?? 1;
+  if (rates) {
+    const from = rates[currency];
+    const to = rates[baseCurrency];
+    if (from != null && to != null && from > 0) {
+      return to / from;
+    }
+  }
+  // Fallback: hardcoded stubs for when no live rates are available
+  const fallback: Record<string, number> = { USD: 1, EUR: 1.05, GBP: 1.27 };
+  const from = fallback[currency] ?? 1;
+  const to = fallback[baseCurrency] ?? 1;
   return to / from;
 }

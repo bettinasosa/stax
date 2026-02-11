@@ -22,9 +22,14 @@ export const EVENT_KINDS = [
 
 export type EventKind = (typeof EVENT_KINDS)[number];
 
-/** Free-tier limit. Set high (e.g. 9999) for local testing to add unlimited holdings. */
-// TODO: change back to 15 for production
-export const FREE_HOLDINGS_LIMIT = 9999;
+export const TRANSACTION_TYPES = ['sell', 'dividend'] as const;
+export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+export const LIABILITY_TYPES = ['mortgage', 'loan', 'credit_card', 'other'] as const;
+export type LiabilityType = (typeof LIABILITY_TYPES)[number];
+
+/** Free-tier limit for number of holdings. Bypassed in dev builds. */
+export const FREE_HOLDINGS_LIMIT = __DEV__ ? 9999 : 15;
 export const FREE_REMINDER_SCHEDULES_LIMIT = 1;
 export const DEFAULT_REMIND_DAYS_BEFORE = 3;
 export const STAX_SCORE_TOP_HOLDING_THRESHOLD = 25;

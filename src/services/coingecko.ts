@@ -1,7 +1,12 @@
 /**
  * CoinGecko API: coin list (symbol → id) and request config.
  * Used by pricing.ts for crypto and metal prices.
- * Optional API key: use EXPO_PUBLIC_COINGECKO_API_KEY for Pro (higher rate limits).
+ *
+ * Key tiers:
+ *   - No key: free endpoint, no header, strict rate limits.
+ *   - Demo key: free endpoint + `x-cg-demo-api-key` header, relaxed limits.
+ *   - Pro key: pro endpoint + `x-cg-pro-api-key` header (set EXPO_PUBLIC_COINGECKO_PRO=1).
+ *
  * @see https://docs.coingecko.com/reference/coins-list
  * @see https://docs.coingecko.com/reference/simple-price
  */
@@ -19,16 +24,26 @@ let symbolToIdCache: Map<string, string> | null = null;
 let listFetchPromise: Promise<Map<string, string>> | null = null;
 
 /**
- * Returns base URL and optional Pro API key from env.
+ * Returns base URL, optional API key, and the correct header name.
+ * Demo keys use the free base URL with `x-cg-demo-api-key`.
+ * Pro keys (opt-in via EXPO_PUBLIC_COINGECKO_PRO=1) use the pro URL with `x-cg-pro-api-key`.
  */
 export function getCoinGeckoConfig(): {
   baseUrl: string;
   apiKey: string | undefined;
+  headerName: string;
 } {
   const apiKey = process.env.EXPO_PUBLIC_COINGECKO_API_KEY?.trim();
+  const isPro = !!process.env.EXPO_PUBLIC_COINGECKO_PRO?.trim();
+
+  if (apiKey && isPro) {
+    return { baseUrl: PRO_BASE, apiKey, headerName: 'x-cg-pro-api-key' };
+  }
+  // Demo key (or no key): use the free endpoint
   return {
-    baseUrl: apiKey ? PRO_BASE : FREE_BASE,
+    baseUrl: FREE_BASE,
     apiKey: apiKey || undefined,
+    headerName: 'x-cg-demo-api-key',
   };
 }
 
@@ -42,10 +57,10 @@ export async function getSymbolToIdMap(): Promise<Map<string, string>> {
   if (listFetchPromise != null) return listFetchPromise;
 
   listFetchPromise = (async () => {
-    const { baseUrl, apiKey } = getCoinGeckoConfig();
+    const { baseUrl, apiKey, headerName } = getCoinGeckoConfig();
     const url = `${baseUrl}/coins/list`;
     const headers: Record<string, string> = {};
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    if (apiKey) headers[headerName] = apiKey;
 
     const res = await fetch(url, { headers });
     if (!res.ok) throw new Error(`CoinGecko list: ${res.status}`);
@@ -89,12 +104,12 @@ export async function fetchHistoricalPricesByContract(
   fromTimestamp: number,
   toTimestamp: number
 ): Promise<HistoricalPricePoint[]> {
-  const { baseUrl, apiKey } = getCoinGeckoConfig();
+  const { baseUrl, apiKey, headerName } = getCoinGeckoConfig();
   const platformId = (platform || 'ethereum').trim().toLowerCase();
   const contract = contractAddress.trim().toLowerCase();
   const url = `${baseUrl}/coins/${platformId}/contract/${contract}/market_chart/range?vs_currency=usd&from=${fromTimestamp}&to=${toTimestamp}`;
   const headers: Record<string, string> = {};
-  if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+  if (apiKey) headers[headerName] = apiKey;
 
   const res = await fetch(url, { headers });
   if (!res.ok) return [];

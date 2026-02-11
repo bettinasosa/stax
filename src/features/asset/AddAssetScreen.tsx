@@ -135,6 +135,26 @@ function WalletHoldingRow({ holding, onRemove }: WalletHoldingRowProps) {
   );
 }
 
+/** Contextual placeholder for the symbol input based on asset type. */
+function getSymbolPlaceholder(type: AssetTypeListed): string {
+  switch (type) {
+    case 'stock': return 'e.g. AAPL, TSLA';
+    case 'etf': return 'e.g. SPY, VTI';
+    case 'crypto': return 'e.g. BTC, ETH';
+    case 'metal': return 'e.g. XAU, XAG';
+    case 'commodity': return 'e.g. CL1! (crude oil)';
+    default: return 'e.g. AAPL, BTC';
+  }
+}
+
+/** Metals we support pricing for. */
+const METAL_OPTIONS = [
+  { symbol: 'XAU', label: 'Gold (XAU)' },
+  { symbol: 'XAG', label: 'Silver (XAG)' },
+  { symbol: 'XPT', label: 'Platinum (XPT)' },
+  { symbol: 'XPD', label: 'Palladium (XPD)' },
+] as const;
+
 /**
  * Add Asset: choose listed vs non-listed, then fill form and save.
  */
@@ -256,11 +276,7 @@ export function AddAssetScreen() {
     if (!isPro) {
       const count = await holdingRepo.countByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
       if (count >= FREE_HOLDINGS_LIMIT) {
-        Alert.alert(
-          'Limit reached',
-          `Free accounts can have up to ${FREE_HOLDINGS_LIMIT} holdings. Upgrade to Pro for unlimited holdings.`,
-          [{ text: 'OK' }]
-        );
+        (navigation as any).navigate('Paywall', { trigger: `holdings limit (${FREE_HOLDINGS_LIMIT})` });
         return;
       }
     }
@@ -352,11 +368,7 @@ export function AddAssetScreen() {
     const count = existingHoldings.length;
     const allowed = isPro ? newOnly.length : Math.max(0, FREE_HOLDINGS_LIMIT - count);
     if (allowed <= 0) {
-      Alert.alert(
-        'Limit reached',
-        `Free accounts can have up to ${FREE_HOLDINGS_LIMIT} holdings. Upgrade to Pro for unlimited holdings.`,
-        [{ text: 'OK' }]
-      );
+      (navigation as any).navigate('Paywall', { trigger: `holdings limit (${FREE_HOLDINGS_LIMIT})` });
       return;
     }
     const toImport = newOnly.slice(0, allowed);
@@ -456,11 +468,7 @@ export function AddAssetScreen() {
     if (!isPro) {
       const count = await holdingRepo.countByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
       if (count >= FREE_HOLDINGS_LIMIT) {
-        Alert.alert(
-          'Limit reached',
-          `Free accounts can have up to ${FREE_HOLDINGS_LIMIT} holdings. Upgrade to Pro for unlimited holdings.`,
-          [{ text: 'OK' }]
-        );
+        (navigation as any).navigate('Paywall', { trigger: `holdings limit (${FREE_HOLDINGS_LIMIT})` });
         return;
       }
     }
@@ -686,50 +694,75 @@ export function AddAssetScreen() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.label}>Symbol</Text>
-        <TextInput
-          style={styles.input}
-          value={symbol}
-          onChangeText={(t) => {
-            setSymbol(t);
-            if (!t.trim()) setListedAssetName('');
-          }}
-          placeholder="e.g. AAPL, BTC"
-          autoCapitalize="characters"
-        />
-        {showSymbolSearch && symbolSearchLoading && (
-          <View style={styles.searchResultsRow}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-            <Text style={styles.searchResultsHint}>Searching…</Text>
+        {listedType === 'metal' ? (
+          <View style={styles.metalPicker}>
+            {METAL_OPTIONS.map((m) => {
+              const selected = symbol.toUpperCase() === m.symbol;
+              return (
+                <TouchableOpacity
+                  key={m.symbol}
+                  style={[styles.metalOption, selected && styles.metalOptionSelected]}
+                  onPress={() => {
+                    setSymbol(m.symbol);
+                    setListedAssetName(m.label.split(' (')[0]);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.metalOptionText, selected && styles.metalOptionTextSelected]}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
-        {showSymbolSearch && symbolSearchResults && symbolSearchResults.length > 0 && (
-          <View style={styles.searchResults}>
-            <Text style={styles.searchResultsLabel}>Tap to select</Text>
-            {symbolSearchResults.slice(0, 8).map((r, i, arr) => (
-              <TouchableOpacity
-                key={`${r.symbol}-${r.type}`}
-                style={[styles.searchResultRow, i === arr.length - 1 && styles.searchResultRowLast]}
-                onPress={() => handleSelectSymbolSearchResult(r)}
-              >
-                <Text style={styles.searchResultSymbol}>{r.displaySymbol || r.symbol}</Text>
-                <Text style={styles.searchResultDesc} numberOfLines={1}>{r.description}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-        {enrichedMeta && (enrichedMeta.country || enrichedMeta.sector) && (
-          <View style={styles.enrichedRow}>
-            {enrichedMeta.country ? (
-              <View style={styles.enrichedBadge}>
-                <Text style={styles.enrichedBadgeText}>{enrichedMeta.country}</Text>
+        ) : (
+          <>
+            <TextInput
+              style={styles.input}
+              value={symbol}
+              onChangeText={(t) => {
+                setSymbol(t);
+                if (!t.trim()) setListedAssetName('');
+              }}
+              placeholder={getSymbolPlaceholder(listedType)}
+              autoCapitalize="characters"
+            />
+            {showSymbolSearch && symbolSearchLoading && (
+              <View style={styles.searchResultsRow}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={styles.searchResultsHint}>Searching…</Text>
               </View>
-            ) : null}
-            {enrichedMeta.sector ? (
-              <View style={styles.enrichedBadge}>
-                <Text style={styles.enrichedBadgeText}>{enrichedMeta.sector}</Text>
+            )}
+            {showSymbolSearch && symbolSearchResults && symbolSearchResults.length > 0 && (
+              <View style={styles.searchResults}>
+                <Text style={styles.searchResultsLabel}>Tap to select</Text>
+                {symbolSearchResults.slice(0, 8).map((r, i, arr) => (
+                  <TouchableOpacity
+                    key={`${r.symbol}-${r.type}`}
+                    style={[styles.searchResultRow, i === arr.length - 1 && styles.searchResultRowLast]}
+                    onPress={() => handleSelectSymbolSearchResult(r)}
+                  >
+                    <Text style={styles.searchResultSymbol}>{r.displaySymbol || r.symbol}</Text>
+                    <Text style={styles.searchResultDesc} numberOfLines={1}>{r.description}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-            ) : null}
-          </View>
+            )}
+            {enrichedMeta && (enrichedMeta.country || enrichedMeta.sector) && (
+              <View style={styles.enrichedRow}>
+                {enrichedMeta.country ? (
+                  <View style={styles.enrichedBadge}>
+                    <Text style={styles.enrichedBadgeText}>{enrichedMeta.country}</Text>
+                  </View>
+                ) : null}
+                {enrichedMeta.sector ? (
+                  <View style={styles.enrichedBadge}>
+                    <Text style={styles.enrichedBadgeText}>{enrichedMeta.sector}</Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
+          </>
         )}
         <Text style={styles.label}>Quantity</Text>
         <TextInput
@@ -1195,5 +1228,31 @@ const styles = StyleSheet.create({
     flex: 1,
     ...theme.typography.caption,
     color: theme.colors.textSecondary,
+  },
+  metalPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
+  },
+  metalOption: {
+    flexBasis: '47%',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+    borderRadius: theme.layout.cardRadius,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  metalOptionSelected: {
+    borderColor: theme.colors.white,
+  },
+  metalOptionText: {
+    ...theme.typography.bodySemi,
+    color: theme.colors.textSecondary,
+  },
+  metalOptionTextSelected: {
+    color: theme.colors.textPrimary,
   },
 });

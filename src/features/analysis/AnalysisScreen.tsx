@@ -7,8 +7,8 @@ import {
   RefreshControl,
   TouchableOpacity,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useEntitlements } from './useEntitlements';
-import { PaywallScreen } from './PaywallScreen';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingsWithValues, allocationByAssetClass } from '../portfolio/portfolioUtils';
 import {
@@ -17,20 +17,26 @@ import {
   exposureBreakdown,
   computePerformance,
   generateRichInsights,
+  computeTWRR,
+  computeSharpe,
 } from './analysisUtils';
 import { StaxScoreRing } from './StaxScoreRing';
 import { AllocationDonut } from './AllocationDonut';
 import { PerformanceCard } from './PerformanceCard';
 import { ConcentrationBars } from './ConcentrationBars';
 import { MarketPulse } from './MarketPulse';
+import { PerformanceMetricsCard } from './PerformanceMetricsCard';
+import { DividendAnalyticsCard } from './DividendAnalyticsCard';
+import { useDividendAnalytics } from './hooks/useDividendAnalytics';
 import { theme } from '../../utils/theme';
 
-type InsightsTab = 'score' | 'market' | 'analysis';
+type InsightsTab = 'score' | 'market' | 'analysis' | 'dividends';
 
 const TABS: { key: InsightsTab; label: string }[] = [
   { key: 'score', label: 'Score & Insights' },
   { key: 'market', label: 'Market Pulse' },
   { key: 'analysis', label: 'Deep Analysis' },
+  { key: 'dividends', label: 'Dividends' },
 ];
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -44,15 +50,33 @@ const SEVERITY_COLORS: Record<string, string> = {
  * and Deep Analysis (allocation, performance, concentration).
  */
 export function AnalysisScreen() {
-  const { isPro } = useEntitlements();
-  const { portfolio, holdings, pricesBySymbol, loading, refresh } = usePortfolio();
+  const navigation = useNavigation();
+  const { isPro, refresh: refreshEntitlements } = useEntitlements();
+  const { portfolio, holdings, pricesBySymbol, loading, refresh, fxRates, transactions, valueHistory } = usePortfolio();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const [activeTab, setActiveTab] = useState<InsightsTab>('score');
-  const [paywallDismissed, setPaywallDismissed] = useState(false);
+
+  const handleTabPress = (tab: InsightsTab) => {
+    // Market, analysis, and dividends tabs require Pro
+    const requiresPro = tab === 'market' || tab === 'analysis' || tab === 'dividends';
+    
+    if (requiresPro && !isPro) {
+      const triggers: Record<InsightsTab, string> = {
+        market: 'Market Pulse requires Stax Pro',
+        analysis: 'Deep Analysis requires Stax Pro',
+        dividends: 'Dividend Analytics requires Stax Pro',
+        score: '', // Not used
+      };
+      (navigation as any).navigate('Paywall', { trigger: triggers[tab] });
+      return;
+    }
+    
+    setActiveTab(tab);
+  };
 
   const withValues = useMemo(
-    () => holdingsWithValues(holdings, pricesBySymbol, baseCurrency),
-    [holdings, pricesBySymbol, baseCurrency]
+    () => holdingsWithValues(holdings, pricesBySymbol, baseCurrency, fxRates),
+    [holdings, pricesBySymbol, baseCurrency, fxRates]
   );
   const concentration = useMemo(() => computeConcentration(withValues), [withValues]);
   const score = useMemo(
@@ -66,13 +90,16 @@ export function AnalysisScreen() {
     return Math.max(...allocation.map((a) => a.percent));
   }, [allocation]);
   const performance = useMemo(
-    () => computePerformance(withValues, pricesBySymbol, baseCurrency),
-    [withValues, pricesBySymbol, baseCurrency]
+    () => computePerformance(withValues, pricesBySymbol, baseCurrency, fxRates),
+    [withValues, pricesBySymbol, baseCurrency, fxRates]
   );
   const richInsights = useMemo(
     () => generateRichInsights(concentration, score, withValues, performance),
     [concentration, score, withValues, performance]
   );
+  const twrr = useMemo(() => computeTWRR(valueHistory, transactions), [valueHistory, transactions]);
+  const sharpe = useMemo(() => computeSharpe(valueHistory), [valueHistory]);
+  const dividendAnalytics = useDividendAnalytics(transactions, holdings);
 
   if (holdings.length === 0) {
     return (
@@ -110,7 +137,7 @@ export function AnalysisScreen() {
             <TouchableOpacity
               key={tab.key}
               style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-              onPress={() => setActiveTab(tab.key)}
+              onPress={() => handleTabPress(tab.key)}
             >
               <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
                 {tab.label}
@@ -169,48 +196,40 @@ export function AnalysisScreen() {
       )}
 
       {/* ══════════════ Market Pulse ══════════════ */}
-      {activeTab === 'market' && (
-        !isPro && !paywallDismissed ? (
-          <PaywallScreen
-            trigger="Market Pulse requires Stax Pro"
-            onDismiss={() => setPaywallDismissed(true)}
-          />
-        ) : (
-          <MarketPulse holdings={holdings} />
-        )
-      )}
+      {activeTab === 'market' && <MarketPulse holdings={holdings} />}
 
       {/* ══════════════ Deep Analysis ══════════════ */}
       {activeTab === 'analysis' && (
-        !isPro && !paywallDismissed ? (
-          <PaywallScreen
-            trigger="Deep Analysis requires Stax Pro"
-            onDismiss={() => setPaywallDismissed(true)}
-          />
-        ) : (
-          <>
-            {/* Allocation Donuts */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Allocation Breakdown</Text>
-              <AllocationDonut exposure={exposure} />
-            </View>
+        <>
+          {/* TWRR & Sharpe (Pro) */}
+          <PerformanceMetricsCard twrr={twrr} sharpe={sharpe} />
 
-            {/* Performance */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Performance</Text>
-              <PerformanceCard performance={performance} baseCurrency={baseCurrency} />
-            </View>
+          {/* Allocation Donuts */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Allocation Breakdown</Text>
+            <AllocationDonut exposure={exposure} />
+          </View>
 
-            {/* Concentration (full) */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Concentration Detail</Text>
-              <ConcentrationBars
-                concentration={concentration}
-                largestAssetClassPercent={largestAssetClassPercent}
-              />
-            </View>
-          </>
-        )
+          {/* Performance */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Performance</Text>
+            <PerformanceCard performance={performance} baseCurrency={baseCurrency} />
+          </View>
+
+          {/* Concentration (full) */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Concentration Detail</Text>
+            <ConcentrationBars
+              concentration={concentration}
+              largestAssetClassPercent={largestAssetClassPercent}
+            />
+          </View>
+        </>
+      )}
+
+      {/* ══════════════ Dividends ══════════════ */}
+      {activeTab === 'dividends' && (
+        <DividendAnalyticsCard analytics={dividendAnalytics} baseCurrency={baseCurrency} />
       )}
     </ScrollView>
   );

@@ -1,4 +1,4 @@
-import type { Holding } from '../../data/schemas';
+import type { Holding, Transaction } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { getRateToBase, formatMoney } from '../../utils/money';
 
@@ -11,9 +11,10 @@ const PRICED_TYPES = ['stock', 'etf', 'crypto', 'metal', 'commodity'] as const;
 export function holdingValueInBase(
   holding: Holding,
   priceResult: PriceResult | null,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): number {
-  const rate = getRateToBase(holding.currency, baseCurrency);
+  const rate = getRateToBase(holding.currency, baseCurrency, fxRates);
   if (holding.quantity != null && holding.symbol && priceResult) {
     return holding.quantity * priceResult.price * rate;
   }
@@ -30,9 +31,10 @@ export function holdingValueInBase(
 export function referenceValueInBase(
   holding: Holding,
   priceResult: PriceResult | null,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): number {
-  const rate = getRateToBase(holding.currency, baseCurrency);
+  const rate = getRateToBase(holding.currency, baseCurrency, fxRates);
   if (holding.manualValue != null) {
     return holding.manualValue * rate;
   }
@@ -55,11 +57,12 @@ export function referenceValueInBase(
 export function portfolioTotalRef(
   holdings: Holding[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): number {
   return holdings.reduce((sum, h) => {
     const price = h.symbol ? pricesBySymbol.get(h.symbol) ?? null : null;
-    return sum + referenceValueInBase(h, price, baseCurrency);
+    return sum + referenceValueInBase(h, price, baseCurrency, fxRates);
   }, 0);
 }
 
@@ -79,10 +82,11 @@ export interface PortfolioChange {
 export function portfolioChange(
   holdings: Holding[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): PortfolioChange | null {
-  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency);
-  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency);
+  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency, fxRates);
+  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency, fxRates);
   if (totalRef <= 0) return null;
   const pnl = totalNow - totalRef;
   const pct = (totalNow - totalRef) / totalRef;
@@ -118,11 +122,12 @@ export function portfolioChange(
 export function portfolioTotalBase(
   holdings: Holding[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): number {
   return holdings.reduce((sum, h) => {
     const price = h.symbol ? pricesBySymbol.get(h.symbol) ?? null : null;
-    return sum + holdingValueInBase(h, price, baseCurrency);
+    return sum + holdingValueInBase(h, price, baseCurrency, fxRates);
   }, 0);
 }
 
@@ -138,11 +143,12 @@ export interface HoldingWithValue {
 export function holdingsWithValues(
   holdings: Holding[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): HoldingWithValue[] {
   const withVal = holdings.map((holding) => {
     const price = holding.symbol ? pricesBySymbol.get(holding.symbol) ?? null : null;
-    const valueBase = holdingValueInBase(holding, price, baseCurrency);
+    const valueBase = holdingValueInBase(holding, price, baseCurrency, fxRates);
     return { holding, valueBase };
   });
   const total = withVal.reduce((s, x) => s + x.valueBase, 0);
@@ -186,7 +192,8 @@ export function allocationByAssetClass(
 export function formatHoldingValueDisplay(
   holding: Holding,
   priceResult: PriceResult | null,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): string {
   const isListed =
     holding.symbol != null && ['stock', 'etf', 'crypto', 'metal', 'commodity'].includes(holding.type);
@@ -198,7 +205,7 @@ export function formatHoldingValueDisplay(
   ) {
     return 'Price unavailable';
   }
-  const value = holdingValueInBase(holding, priceResult, baseCurrency);
+  const value = holdingValueInBase(holding, priceResult, baseCurrency, fxRates);
   return formatMoney(value, baseCurrency);
 }
 
@@ -247,16 +254,17 @@ export interface PortfolioStats {
 export function computePortfolioStats(
   holdings: Holding[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): PortfolioStats {
-  const withVal = holdingsWithValues(holdings, pricesBySymbol, baseCurrency);
+  const withVal = holdingsWithValues(holdings, pricesBySymbol, baseCurrency, fxRates);
   const totalValue = withVal.reduce((s, h) => s + h.valueBase, 0);
 
   // Cost basis
   let totalCostBasis = 0;
   for (const h of holdings) {
     if (h.costBasis != null) {
-      const rate = getRateToBase(h.costBasisCurrency ?? h.currency, baseCurrency);
+      const rate = getRateToBase(h.costBasisCurrency ?? h.currency, baseCurrency, fxRates);
       totalCostBasis += h.costBasis * rate;
     }
   }
@@ -291,7 +299,7 @@ export function computePortfolioStats(
         : 'Highly concentrated';
 
   // Day change
-  const change = portfolioChange(holdings, pricesBySymbol, baseCurrency);
+  const change = portfolioChange(holdings, pricesBySymbol, baseCurrency, fxRates);
   const dayChangePnl = change?.pnl ?? null;
   const dayChangePct = change?.pct != null ? change.pct * 100 : null;
 
@@ -330,16 +338,17 @@ export interface AttributionRow {
 export function attributionFromChange(
   holdings: Holding[],
   pricesBySymbol: Map<string, PriceResult>,
-  baseCurrency: string
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
 ): { rows: AttributionRow[]; totalPnl: number } {
-  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency);
-  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency);
+  const totalRef = portfolioTotalRef(holdings, pricesBySymbol, baseCurrency, fxRates);
+  const totalNow = portfolioTotalBase(holdings, pricesBySymbol, baseCurrency, fxRates);
   const totalPnl = totalNow - totalRef;
 
   const rows: AttributionRow[] = holdings.map((h) => {
     const price = h.symbol ? pricesBySymbol.get(h.symbol) ?? null : null;
-    const refVal = referenceValueInBase(h, price, baseCurrency);
-    const nowVal = holdingValueInBase(h, price, baseCurrency);
+    const refVal = referenceValueInBase(h, price, baseCurrency, fxRates);
+    const nowVal = holdingValueInBase(h, price, baseCurrency, fxRates);
     const contributionAbs = nowVal - refVal;
     const returnPct = refVal > 0 ? ((nowVal - refVal) / refVal) * 100 : null;
     const contributionPct = totalPnl !== 0 ? (contributionAbs / totalPnl) * 100 : 0;
@@ -354,4 +363,127 @@ export function attributionFromChange(
 
   rows.sort((a, b) => Math.abs(b.contributionAbs) - Math.abs(a.contributionAbs));
   return { rows, totalPnl };
+}
+
+// ---------------------------------------------------------------------------
+// Since-inception (cost basis) returns
+// ---------------------------------------------------------------------------
+
+export interface InceptionReturn {
+  /** Cost basis in base currency. */
+  costBasis: number;
+  /** Current value in base currency. */
+  currentValue: number;
+  /** Absolute gain/loss (currentValue - costBasis). */
+  gainLoss: number;
+  /** Percentage return ((currentValue - costBasis) / costBasis * 100). */
+  returnPct: number;
+}
+
+/**
+ * Compute per-holding since-inception return using costBasis.
+ * Returns null when the holding has no cost basis set.
+ */
+export function holdingInceptionReturn(
+  holding: Holding,
+  priceResult: PriceResult | null,
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
+): InceptionReturn | null {
+  if (holding.costBasis == null || holding.costBasis <= 0) return null;
+  const cbRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency, fxRates);
+  const costBasis = holding.costBasis * cbRate;
+  const currentValue = holdingValueInBase(holding, priceResult, baseCurrency, fxRates);
+  const gainLoss = currentValue - costBasis;
+  const returnPct = (gainLoss / costBasis) * 100;
+  return { costBasis, currentValue, gainLoss, returnPct };
+}
+
+/**
+ * Compute aggregate portfolio since-inception return across all holdings with cost basis.
+ * Returns null if no holdings have cost basis data.
+ */
+export function portfolioInceptionReturn(
+  holdings: Holding[],
+  pricesBySymbol: Map<string, PriceResult>,
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
+): InceptionReturn | null {
+  let totalCost = 0;
+  let totalValue = 0;
+  let hasData = false;
+
+  for (const h of holdings) {
+    const price = h.symbol ? pricesBySymbol.get(h.symbol) ?? null : null;
+    const ret = holdingInceptionReturn(h, price, baseCurrency, fxRates);
+    if (ret) {
+      totalCost += ret.costBasis;
+      totalValue += ret.currentValue;
+      hasData = true;
+    }
+  }
+
+  if (!hasData || totalCost <= 0) return null;
+  const gainLoss = totalValue - totalCost;
+  const returnPct = (gainLoss / totalCost) * 100;
+  return { costBasis: totalCost, currentValue: totalValue, gainLoss, returnPct };
+}
+
+// ---------------------------------------------------------------------------
+// Transaction summaries (realized P&L, dividend income)
+// ---------------------------------------------------------------------------
+
+/** Sum realized gain/loss from sell transactions. */
+export function totalRealizedGainLoss(transactions: Transaction[]): number {
+  return transactions
+    .filter((t) => t.type === 'sell' && t.realizedGainLoss != null)
+    .reduce((sum, t) => sum + (t.realizedGainLoss ?? 0), 0);
+}
+
+/** Sum total dividend income. */
+export function totalDividendIncome(transactions: Transaction[]): number {
+  return transactions
+    .filter((t) => t.type === 'dividend')
+    .reduce((sum, t) => sum + t.totalAmount, 0);
+}
+
+/** Monthly dividend income for the last N months. Returns array of { month: 'YYYY-MM', amount }. */
+export function monthlyDividendIncome(
+  transactions: Transaction[],
+  monthsBack: number = 12,
+): { month: string; amount: number }[] {
+  const since = new Date();
+  since.setMonth(since.getMonth() - monthsBack);
+  const sinceISO = since.toISOString();
+
+  const byMonth = new Map<string, number>();
+  for (const t of transactions) {
+    if (t.type !== 'dividend' || t.date < sinceISO) continue;
+    const month = t.date.slice(0, 7); // YYYY-MM
+    byMonth.set(month, (byMonth.get(month) ?? 0) + t.totalAmount);
+  }
+
+  // Fill in missing months with 0
+  const result: { month: string; amount: number }[] = [];
+  const cursor = new Date(since);
+  cursor.setDate(1);
+  const now = new Date();
+  while (cursor <= now) {
+    const key = cursor.toISOString().slice(0, 7);
+    result.push({ month: key, amount: byMonth.get(key) ?? 0 });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return result;
+}
+
+/** Dividend totals grouped by holding ID. */
+export function dividendsByHolding(
+  transactions: Transaction[],
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const t of transactions) {
+    if (t.type !== 'dividend') continue;
+    map.set(t.holdingId, (map.get(t.holdingId) ?? 0) + t.totalAmount);
+  }
+  return map;
 }

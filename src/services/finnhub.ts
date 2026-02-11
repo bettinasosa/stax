@@ -162,12 +162,19 @@ export async function getStockCandle(
   try {
     const url = `${FINNHUB_BASE}/stock/candle?symbol=${encodeURIComponent(sym)}&resolution=${resolution}&from=${from}&to=${to}&token=${encodeURIComponent(apiKey)}`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[Finnhub] Candle ${sym}: HTTP ${res.status}`);
+      return null;
+    }
     const data = (await res.json()) as FinnhubCandleResponse;
-    if (data.s !== 'ok' || !data.c?.length) return null;
+    if (data.s !== 'ok' || !data.c?.length) {
+      console.warn(`[Finnhub] Candle ${sym}: status=${data.s}, points=${data.c?.length ?? 0}`);
+      return null;
+    }
     setCache(cacheKey, data, CANDLE_TTL);
     return data;
-  } catch {
+  } catch (err) {
+    console.warn(`[Finnhub] Candle ${sym}: fetch error`, err);
     return null;
   }
 }

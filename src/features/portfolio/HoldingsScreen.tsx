@@ -13,6 +13,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { holdingRepo } from '../../data';
 import { usePortfolio } from './usePortfolio';
 import { holdingsWithValues, formatHoldingValueDisplay, type HoldingWithValue } from './portfolioUtils';
+import { exportPortfolioCSV } from '../../services/csvExport';
+import { trackCsvExportCompleted } from '../../services/analytics';
 import { theme } from '../../utils/theme';
 
 /** Filter pill labels and types they include. */
@@ -36,7 +38,7 @@ const FILTER_PILLS: { label: string; types: string[] }[] = [
 export function HoldingsScreen() {
   const navigation = useNavigation();
   const db = useSQLiteContext();
-  const { portfolio, holdings, pricesBySymbol, loading, refresh } = usePortfolio();
+  const { portfolio, holdings, pricesBySymbol, loading, refresh, fxRates } = usePortfolio();
   const [filterIndex, setFilterIndex] = useState(0);
   const [editMode, setEditMode] = useState(false);
 
@@ -48,8 +50,8 @@ export function HoldingsScreen() {
 
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const withValues = useMemo(
-    () => holdingsWithValues(holdings, pricesBySymbol, baseCurrency),
-    [holdings, pricesBySymbol, baseCurrency]
+    () => holdingsWithValues(holdings, pricesBySymbol, baseCurrency, fxRates),
+    [holdings, pricesBySymbol, baseCurrency, fxRates]
   );
 
   /** Only show filter pills for asset types that exist in the portfolio. */
@@ -71,6 +73,15 @@ export function HoldingsScreen() {
     (navigation as { navigate: (s: string, p: object) => void }).navigate('HoldingDetail', {
       holdingId: item.holding.id,
     });
+  };
+
+  const handleExport = async () => {
+    try {
+      await exportPortfolioCSV(holdings, pricesBySymbol, baseCurrency, fxRates);
+      trackCsvExportCompleted(holdings.length);
+    } catch (e) {
+      Alert.alert('Export failed', e instanceof Error ? e.message : 'Unable to export');
+    }
   };
 
   const handleDelete = (item: HoldingWithValue) => {
@@ -113,7 +124,8 @@ export function HoldingsScreen() {
                 {formatHoldingValueDisplay(
                   item.holding,
                   item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
-                  baseCurrency
+                  baseCurrency,
+                  fxRates
                 )}
               </Text>
               {item.holding.symbol && (() => {
@@ -177,6 +189,9 @@ export function HoldingsScreen() {
         ))}
       </View>
       <View style={styles.editRow}>
+        <TouchableOpacity style={styles.editButton} onPress={handleExport}>
+          <Text style={styles.editButtonText}>Export</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.editButton, editMode && styles.editButtonActive]}
           onPress={() => setEditMode((prev) => !prev)}
@@ -246,7 +261,7 @@ const styles = StyleSheet.create({
   },
   editRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.sm,
     paddingBottom: theme.spacing.xs,
   },

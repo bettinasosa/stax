@@ -1,16 +1,17 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
-import { portfolioRepo, holdingRepo, pricePointRepo, portfolioValueSnapshotRepo } from '../../data';
+import { portfolioRepo, holdingRepo, pricePointRepo, portfolioValueSnapshotRepo, transactionRepo } from '../../data';
 import {
   getActivePortfolioId,
   setActivePortfolioId as persistActivePortfolioId,
 } from '../../data/activePortfolioStorage';
-import type { Portfolio, Holding } from '../../data/schemas';
+import type { Portfolio, Holding, Transaction } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { refreshPrices } from '../../services/pricing';
 import type { AssetTypeListed } from '../../utils/constants';
 import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
 import { portfolioTotalBase } from './portfolioUtils';
+import { fetchFxRates } from '../../services/fxRates';
 
 export interface PortfolioState {
   portfolio: Portfolio | null;
@@ -67,6 +68,8 @@ export function usePortfolio() {
   const [pricesBySymbol, setPricesBySymbol] = useState<Map<string, PriceResult>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fxRates, setFxRates] = useState<Record<string, number> | undefined>(undefined);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [valueHistory, setValueHistory] = useState<
     { timestamp: string; valueBase: number; baseCurrency: string }[]
   >([]);
@@ -85,8 +88,12 @@ export function usePortfolio() {
         return;
       }
       setPortfolio(p);
-      const h = await holdingRepo.getByPortfolioId(dbRef.current, p.id);
+      const [h, txns] = await Promise.all([
+        holdingRepo.getByPortfolioId(dbRef.current, p.id),
+        transactionRepo.getByPortfolioId(dbRef.current, p.id),
+      ]);
       setHoldings(h);
+      setTransactions(txns);
 
       const listed = h.filter(
         (x): x is Holding & { symbol: string; type: AssetTypeListed } =>
@@ -102,6 +109,10 @@ export function usePortfolio() {
       });
       setPricesBySymbol(cachedResult);
       setLoading(false);
+
+      // Fetch live FX rates (non-blocking — falls back to stubs if unavailable)
+      const rates = (await fetchFxRates()) ?? undefined;
+      setFxRates(rates);
 
       let snapshotMap = cachedResult;
       if (listed.length > 0) {
@@ -126,7 +137,7 @@ export function usePortfolio() {
         });
         snapshotMap = resultMap;
       }
-      const totalBaseNow = portfolioTotalBase(h, snapshotMap, p.baseCurrency);
+      const totalBaseNow = portfolioTotalBase(h, snapshotMap, p.baseCurrency, rates);
       await portfolioValueSnapshotRepo.insert(dbRef.current, {
         portfolioId: p.id,
         timestamp: new Date().toISOString(),
@@ -225,7 +236,7 @@ export function usePortfolio() {
   }, [activePortfolioId, load]);
 
   const totalBase = portfolio
-    ? portfolioTotalBase(holdings, pricesBySymbol, portfolio.baseCurrency)
+    ? portfolioTotalBase(holdings, pricesBySymbol, portfolio.baseCurrency, fxRates)
     : 0;
 
   return {
@@ -242,6 +253,8 @@ export function usePortfolio() {
     createPortfolio,
     renamePortfolio,
     archivePortfolio,
+    transactions,
     valueHistory,
+    fxRates,
   };
 }

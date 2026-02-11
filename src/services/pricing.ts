@@ -84,9 +84,9 @@ async function fetchCryptoPrice(
   symbol: string,
   metadata?: PriceMetadata
 ): Promise<PriceResult | null> {
-  const { baseUrl, apiKey } = getCoinGeckoConfig();
+  const { baseUrl, apiKey, headerName } = getCoinGeckoConfig();
   const headers: Record<string, string> = {};
-  if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+  if (apiKey) headers[headerName] = apiKey;
 
   try {
     const providerId = metadata?.providerId?.trim();
@@ -177,23 +177,105 @@ async function fetchCoinGeckoTokenPrice(
   return { price: usd, currency: 'USD', symbol, ...(changePercent != null && { changePercent }) };
 }
 
+/**
+ * Canonical metal symbol mapping (user-friendly names → ISO codes).
+ * Alpha Vantage supports XAU, XAG, XPT, XPD as forex "from" currencies.
+ */
+const METAL_SYMBOL_MAP: Record<string, string> = {
+  XAU: 'XAU',
+  GOLD: 'XAU',
+  XAG: 'XAG',
+  SILVER: 'XAG',
+  XPT: 'XPT',
+  PLATINUM: 'XPT',
+  XPD: 'XPD',
+  PALLADIUM: 'XPD',
+};
+
+/** CoinGecko fallback IDs for metal-backed tokens. */
+const METAL_COINGECKO_IDS: Record<string, string> = {
+  XAU: 'pax-gold',
+  XAG: 'silver-token',
+};
+
+/**
+ * Fetch metal spot price per troy ounce.
+ * Primary: Alpha Vantage CURRENCY_EXCHANGE_RATE (supports XAU/XAG/XPT/XPD natively).
+ * Fallback: CoinGecko metal-backed token (gold/silver only — pax-gold tracks physical spot closely).
+ *
+ * IMPORTANT: We intentionally do NOT fall back to metal-tracking ETFs (GLD, SLV, etc.)
+ * because ETF share prices ≠ metal spot prices per ounce. Using them would corrupt
+ * the cached price and cause values to "jostle" between correct and wrong prices.
+ * When all providers fail, we return null so the DB-cached last known price is preserved.
+ */
 async function fetchMetalPrice(symbol: string): Promise<PriceResult | null> {
-  if (symbol === 'XAU' || symbol === 'GOLD') {
-    try {
-      const { baseUrl, apiKey } = getCoinGeckoConfig();
-      const headers: Record<string, string> = {};
-      if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
-      const url = `${baseUrl}/simple/price?ids=gold&vs_currencies=usd`;
-      const res = await fetch(url, { headers });
-      const data = (await res.json()) as { gold?: { usd?: number } };
-      const usd = data.gold?.usd;
-      if (usd != null) return { price: usd, currency: 'USD', symbol: 'XAU' };
-    } catch {
-      // fallback
-    }
-    return { price: 2650, currency: 'USD', symbol: 'XAU' };
+  const isoCode = METAL_SYMBOL_MAP[symbol];
+  if (!isoCode) return null;
+
+  // 1. Alpha Vantage forex (primary — supports metal ISO codes natively, returns spot per oz)
+  const avResult = await fetchMetalPriceViaAlphaVantage(isoCode, symbol);
+  if (avResult) {
+    console.log(`[Pricing] Metal ${symbol}: Alpha Vantage → $${avResult.price.toFixed(2)}`);
+    return avResult;
   }
+  console.warn(`[Pricing] Metal ${symbol}: Alpha Vantage failed, trying CoinGecko…`);
+
+  // 2. CoinGecko metal-backed token (gold only — pax-gold tracks physical spot closely)
+  const coinGeckoId = METAL_COINGECKO_IDS[isoCode];
+  if (coinGeckoId) {
+    try {
+      const { baseUrl, apiKey, headerName } = getCoinGeckoConfig();
+      const headers: Record<string, string> = {};
+      if (apiKey) headers[headerName] = apiKey;
+      const url = `${baseUrl}/simple/price?ids=${encodeURIComponent(coinGeckoId)}&vs_currencies=usd&include_24hr_change=true`;
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data = (await res.json()) as Record<string, { usd?: number; usd_24h_change?: number | null }>;
+        const coin = data[coinGeckoId];
+        if (coin?.usd != null) {
+          const changePercent = coin.usd_24h_change != null ? coin.usd_24h_change : undefined;
+          return { price: coin.usd, currency: 'USD', symbol, ...(changePercent != null && { changePercent }) };
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  // Return null — the DB cache in usePortfolio will keep showing the last known good price
   return null;
+}
+
+/**
+ * Fetch metal spot price via Alpha Vantage CURRENCY_EXCHANGE_RATE.
+ * Supports XAU, XAG, XPT, XPD as "from_currency" with USD as "to_currency".
+ */
+async function fetchMetalPriceViaAlphaVantage(
+  isoCode: string,
+  originalSymbol: string,
+): Promise<PriceResult | null> {
+  const apiKey = process.env.EXPO_PUBLIC_ALPHA_VANTAGE_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const url = `${ALPHA_VANTAGE_BASE}?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(isoCode)}&to_currency=USD&apikey=${apiKey}`;
+    const res = await fetch(url);
+    const data = (await res.json()) as {
+      'Realtime Currency Exchange Rate'?: {
+        '5. Exchange Rate'?: string;
+        '8. Bid Price'?: string;
+        '9. Ask Price'?: string;
+      };
+    };
+    const rate = data['Realtime Currency Exchange Rate'];
+    const priceStr = rate?.['5. Exchange Rate'] ?? rate?.['8. Bid Price'];
+    if (priceStr == null) return null;
+    const price = parseFloat(priceStr);
+    if (Number.isNaN(price) || price <= 0) return null;
+    return { price, currency: 'USD', symbol: originalSymbol };
+  } catch {
+    return null;
+  }
 }
 
 function mockPrice(symbol: string, currency: string, price: number): PriceResult {

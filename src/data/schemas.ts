@@ -3,8 +3,10 @@ import {
   ASSET_TYPES,
   ASSET_TYPE_LISTED,
   EVENT_KINDS,
+  TRANSACTION_TYPES,
   type AssetType,
   type EventKind,
+  type TransactionType,
 } from '../utils/constants';
 
 /** Portfolio entity schema (strict for production). */
@@ -193,6 +195,30 @@ export type Lot = z.infer<typeof lotSchema>;
 export const createLotSchema = lotSchema.omit({ id: true });
 
 export type CreateLotInput = z.infer<typeof createLotSchema>;
+
+/** Transaction schema: sell or dividend record for a holding. */
+export const transactionSchema = z
+  .object({
+    id: z.string().uuid(),
+    holdingId: z.string().uuid(),
+    type: z.enum(TRANSACTION_TYPES as unknown as [TransactionType, ...TransactionType[]]),
+    date: z.string().datetime(),
+    quantity: z.number().positive().nullish(),
+    pricePerUnit: z.number().nonnegative().nullish(),
+    totalAmount: z.number(),
+    currency: z.string().length(3),
+    realizedGainLoss: z.number().nullish(),
+    note: z.string().nullish(),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export type Transaction = z.infer<typeof transactionSchema>;
+
+/** Create transaction DTO. */
+export const createTransactionSchema = transactionSchema.omit({ id: true, createdAt: true });
+
+export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 
 /** Build assetId from chainId and contract address (null/empty for native). */
 export function buildAssetId(chainId: number, contractAddress: string | null | undefined): string {

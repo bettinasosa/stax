@@ -11,10 +11,10 @@ import {
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { holdingRepo, eventRepo, lotRepo } from '../../data';
+import { holdingRepo, eventRepo, lotRepo, transactionRepo } from '../../data';
 import { updateHoldingSchema } from '../../data/schemas';
 import { cancelEventNotification } from '../../services/notifications';
-import type { Holding, Event, Lot } from '../../data/schemas';
+import type { Holding, Event, Lot, Transaction } from '../../data/schemas';
 import { formatMoney } from '../../utils/money';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingValueInBase } from '../portfolio/portfolioUtils';
@@ -32,10 +32,11 @@ export function HoldingDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RouteParams, 'HoldingDetail'>>();
   const holdingId = route.params?.holdingId ?? '';
-  const { portfolio, pricesBySymbol, totalBase, refresh } = usePortfolio();
+  const { portfolio, pricesBySymbol, totalBase, refresh, fxRates } = usePortfolio();
   const [holding, setHolding] = useState<Holding | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -53,12 +54,14 @@ export function HoldingDetailScreen() {
       setEditManualValue(h.manualValue != null ? String(h.manualValue) : '');
       setEditCurrency(h.currency);
     }
-    const [e, l] = await Promise.all([
+    const [e, l, t] = await Promise.all([
       eventRepo.getByHoldingId(db, holdingId),
       lotRepo.getByHoldingId(db, holdingId),
+      transactionRepo.getByHoldingId(db, holdingId),
     ]);
     setEvents(e);
     setLots(l);
+    setTransactions(t);
     setLoading(false);
   }, [db, holdingId]);
 
@@ -78,7 +81,8 @@ export function HoldingDetailScreen() {
     ? holdingValueInBase(
         holding,
         holding.symbol ? pricesBySymbol.get(holding.symbol) ?? null : null,
-        baseCurrency
+        baseCurrency,
+        fxRates
       )
     : 0;
   const weightPercent = totalBase > 0 ? (valueBase / totalBase) * 100 : 0;
@@ -154,6 +158,20 @@ export function HoldingDetailScreen() {
     );
   };
 
+  const handleDeleteTransaction = (txnId: string) => {
+    Alert.alert('Delete transaction', 'Remove this transaction record?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await transactionRepo.remove(db, txnId);
+          load();
+        },
+      },
+    ]);
+  };
+
   const nav = navigation as { navigate: (s: string, p: object) => void };
 
   if (loading) {
@@ -211,6 +229,63 @@ export function HoldingDetailScreen() {
           }
           return null;
         })()}
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionRow}>
+          <Text style={styles.sectionTitle}>Transactions</Text>
+          <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+            {isListed(holding.type) && (
+              <TouchableOpacity
+                style={styles.addEventBtn}
+                onPress={() => nav.navigate('RecordSell', { holdingId })}
+              >
+                <Text style={styles.addEventBtnText}>+ Sell</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.addEventBtn}
+              onPress={() => nav.navigate('LogDividend', { holdingId })}
+            >
+              <Text style={styles.addEventBtnText}>+ Dividend</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        {transactions.length === 0 ? (
+          <Text style={styles.muted}>No transactions recorded yet.</Text>
+        ) : (
+          transactions.map((txn) => (
+            <View key={txn.id} style={styles.eventRow}>
+              <View style={styles.eventLeft}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs }}>
+                  <View style={[styles.badge, txn.type === 'sell' ? styles.sellBadge : styles.dividendBadge]}>
+                    <Text style={styles.badgeText}>{txn.type}</Text>
+                  </View>
+                  <Text style={styles.eventKind}>
+                    {formatMoney(txn.totalAmount, txn.currency)}
+                  </Text>
+                </View>
+                <Text style={styles.eventDate}>{new Date(txn.date).toLocaleDateString()}</Text>
+                {txn.type === 'sell' && txn.realizedGainLoss != null && (
+                  <Text style={[
+                    styles.eventDate,
+                    txn.realizedGainLoss >= 0
+                      ? { color: theme.colors.positive }
+                      : { color: theme.colors.negative },
+                  ]}>
+                    P&L: {txn.realizedGainLoss >= 0 ? '+' : ''}{formatMoney(txn.realizedGainLoss, txn.currency)}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => handleDeleteTransaction(txn.id)}
+                style={[styles.eventActionBtn, styles.eventActionDelete]}
+              >
+                <Text style={styles.eventActionDeleteText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
       </View>
 
       {holding.type === 'fixed_income' && holding.metadata && (
@@ -452,6 +527,12 @@ const styles = StyleSheet.create({
   badgeText: {
     ...theme.typography.small,
     color: theme.colors.textSecondary,
+  },
+  sellBadge: {
+    backgroundColor: theme.colors.negative + '33',
+  },
+  dividendBadge: {
+    backgroundColor: theme.colors.positive + '33',
   },
   section: { marginBottom: theme.spacing.sm },
   sectionTitle: {

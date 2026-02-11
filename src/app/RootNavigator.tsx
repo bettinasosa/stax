@@ -9,6 +9,7 @@ import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { ImportCSVScreen } from '../features/settings/ImportCSVScreen';
 import { PortfoliosScreen } from '../features/portfolio/PortfoliosScreen';
+import { PaywallScreen } from '../features/analysis/PaywallScreen';
 import { AppNavigation } from './navigation';
 import { theme } from '../utils/theme';
 
@@ -20,6 +21,27 @@ function LoadingScreen() {
       <ActivityIndicator size="large" color={theme.colors.textPrimary} />
       <Text style={styles.loadingText}>Loading…</Text>
     </View>
+  );
+}
+
+/** Wrapper for PaywallScreen that works with React Navigation */
+function PaywallScreenWrapper({ route, navigation }: any) {
+  const trigger = route.params?.trigger;
+  
+  const handleDismiss = () => {
+    navigation.goBack();
+  };
+  
+  const handleSuccess = () => {
+    navigation.goBack();
+  };
+  
+  return (
+    <PaywallScreen 
+      trigger={trigger} 
+      onDismiss={handleDismiss} 
+      onSuccess={handleSuccess} 
+    />
   );
 }
 
@@ -94,6 +116,14 @@ export function RootNavigator() {
           name="Portfolios"
           component={PortfoliosScreen}
           options={{ title: 'Portfolios' }}
+        />
+        <Stack.Screen
+          name="Paywall"
+          component={PaywallScreenWrapper}
+          options={{ 
+            title: 'Stax Pro',
+            presentation: 'modal',
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>
