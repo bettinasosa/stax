@@ -5,6 +5,37 @@ import { getRateToBase, formatMoney } from '../../utils/money';
 const PRICED_TYPES = ['stock', 'etf', 'crypto', 'metal', 'commodity'] as const;
 
 /**
+ * Compute unrealized P&L for a single holding in base currency.
+ * Listed: (valueBase - costBase) / costBase * 100. Non-listed: (manualValue*rate - costBasis in base) / costBasis * 100.
+ * Returns null when cost basis or value data is missing.
+ */
+export function computeHoldingPnl(
+  holding: Holding,
+  priceResult: PriceResult | null,
+  baseCurrency: string,
+  fxRates?: Record<string, number>,
+): { pnl: number; pnlPct: number } | null {
+  const valueBase = holdingValueInBase(holding, priceResult, baseCurrency, fxRates);
+  const costRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency, fxRates);
+
+  if (holding.costBasis == null || holding.costBasis <= 0) return null;
+
+  let costBase: number;
+  if (holding.quantity != null && holding.quantity > 0 && holding.symbol) {
+    costBase = holding.costBasis * holding.quantity * costRate;
+  } else if (holding.manualValue != null) {
+    costBase = holding.costBasis * costRate;
+  } else {
+    return null;
+  }
+
+  if (costBase <= 0) return null;
+  const pnl = valueBase - costBase;
+  const pnlPct = (pnl / costBase) * 100;
+  return { pnl, pnlPct };
+}
+
+/**
  * Compute current value of a holding in base currency.
  * Listed: quantity * price, then FX to base. Non-listed: manualValue, then FX to base.
  */

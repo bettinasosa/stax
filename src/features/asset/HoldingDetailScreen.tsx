@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,10 +19,31 @@ import { formatMoney } from '../../utils/money';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingValueInBase } from '../portfolio/portfolioUtils';
 import { theme } from '../../utils/theme';
+import { fetchWalletHoldings } from '../../services/ethplorer';
+import { useFinancialMetrics } from '../charts/hooks/useFinancialMetrics';
+import { useCompanyProfile } from '../charts/hooks/useCompanyProfile';
+import { isFinnhubConfigured } from '../../services/finnhub';
 
 type RouteParams = { HoldingDetail: { holdingId: string } };
 
 const isListed = (type: string) => ['stock', 'etf', 'crypto', 'metal', 'commodity'].includes(type);
+
+function formatMetric(
+  value: number | null | undefined,
+  decimals: number,
+  prefix = '',
+  suffix = '',
+): string {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return `${prefix}${value.toFixed(decimals)}${suffix}`;
+}
+
+function formatLargeNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '--';
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}T`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}B`;
+  return `$${value.toFixed(0)}M`;
+}
 
 /**
  * Holding Detail: summary, editable fields, events list, Add Event, Edit, Delete.
@@ -39,6 +60,28 @@ export function HoldingDetailScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Fundamentals for stock/ETF holdings
+  const isStockOrEtf = holding?.type === 'stock' || holding?.type === 'etf';
+  const fSymbol = isStockOrEtf && isFinnhubConfigured() ? holding?.symbol ?? null : null;
+  const { metrics: fundamentalsMetrics, loading: metricsLoading } = useFinancialMetrics(fSymbol);
+  const { profile: companyProfile } = useCompanyProfile(fSymbol);
+
+  const compactMetrics = useMemo(() => {
+    if (!fundamentalsMetrics?.metric) return [];
+    const m = fundamentalsMetrics.metric;
+    return [
+      { label: 'P/E Ratio', value: formatMetric(m.peBasicExclExtraTTM, 1) },
+      { label: 'EPS (TTM)', value: formatMetric(m.epsBasicExclExtraItemsTTM, 2, '$') },
+      { label: 'Market Cap', value: formatLargeNumber(m.marketCapitalization) },
+      { label: 'Div. Yield', value: formatMetric(m.dividendYieldIndicatedAnnual, 2, '', '%') },
+      { label: '52W High', value: formatMetric(m['52WeekHigh'], 2, '$') },
+      { label: '52W Low', value: formatMetric(m['52WeekLow'], 2, '$') },
+      { label: 'ROE', value: formatMetric(m.roeTTM, 1, '', '%') },
+      { label: 'Net Margin', value: formatMetric(m.netProfitMarginTTM, 1, '', '%') },
+    ].filter((c) => c.value !== '--');
+  }, [fundamentalsMetrics]);
 
   const [editName, setEditName] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
@@ -172,6 +215,29 @@ export function HoldingDetailScreen() {
     ]);
   };
 
+  const handleRefreshWallet = async () => {
+    if (!holding?.metadata?.walletAddress || !holding.symbol) return;
+    setRefreshing(true);
+    try {
+      const walletHoldings = await fetchWalletHoldings(holding.metadata.walletAddress);
+      const match = walletHoldings.find(
+        (wh) => wh.symbol.toUpperCase() === holding.symbol!.toUpperCase(),
+      );
+      if (match) {
+        await holdingRepo.update(db, holdingId, { quantity: match.quantity });
+        await load();
+        refresh();
+        Alert.alert('Updated', `${holding.symbol} quantity updated to ${match.quantity}`);
+      } else {
+        Alert.alert('Not found', `${holding.symbol} was not found in this wallet.`);
+      }
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to refresh');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const nav = navigation as { navigate: (s: string, p: object) => void };
 
   if (loading) {
@@ -230,6 +296,50 @@ export function HoldingDetailScreen() {
           return null;
         })()}
       </View>
+
+      {isStockOrEtf && isFinnhubConfigured() && (
+        <View style={styles.fundamentalsSection}>
+          <Text style={styles.sectionTitle}>Fundamentals</Text>
+          {metricsLoading ? (
+            <ActivityIndicator color={theme.colors.textSecondary} size="small" style={{ paddingVertical: theme.spacing.sm }} />
+          ) : compactMetrics.length > 0 ? (
+            <>
+              <View style={styles.metricsGrid}>
+                {compactMetrics.map((c) => (
+                  <View key={c.label} style={styles.metricCard}>
+                    <Text style={styles.metricLabel}>{c.label}</Text>
+                    <Text style={styles.metricValue}>{c.value}</Text>
+                  </View>
+                ))}
+              </View>
+              {companyProfile && (
+                <View style={styles.profileSummary}>
+                  {companyProfile.finnhubIndustry ? (
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabel}>Industry</Text>
+                      <Text style={styles.metadataValue}>{companyProfile.finnhubIndustry}</Text>
+                    </View>
+                  ) : null}
+                  {companyProfile.country ? (
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabel}>Country</Text>
+                      <Text style={styles.metadataValue}>{companyProfile.country}</Text>
+                    </View>
+                  ) : null}
+                  {companyProfile.exchange ? (
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabel}>Exchange</Text>
+                      <Text style={styles.metadataValue}>{companyProfile.exchange}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+            </>
+          ) : (
+            <Text style={styles.muted}>No fundamental data available.</Text>
+          )}
+        </View>
+      )}
 
       <View style={styles.section}>
         <View style={styles.sectionRow}>
@@ -390,6 +500,51 @@ export function HoldingDetailScreen() {
               <Text style={styles.metadataLabel}>AER:</Text>
               <Text style={styles.metadataValue}>{holding.metadata.aer}%</Text>
             </View>
+          )}
+        </View>
+      )}
+
+      {holding.type === 'crypto' && holding.metadata && (
+        holding.metadata.network || holding.metadata.contractAddress || holding.metadata.walletAddress
+      ) && (
+        <View style={styles.metadataSection}>
+          <Text style={styles.metadataTitle}>Crypto Details</Text>
+          {holding.metadata.network && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Network</Text>
+              <Text style={styles.metadataValue}>
+                {holding.metadata.network.charAt(0).toUpperCase() + holding.metadata.network.slice(1)}
+              </Text>
+            </View>
+          )}
+          {holding.metadata.contractAddress && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Contract</Text>
+              <Text style={styles.metadataValue} numberOfLines={1}>
+                {holding.metadata.contractAddress.slice(0, 6)}...{holding.metadata.contractAddress.slice(-4)}
+              </Text>
+            </View>
+          )}
+          {holding.metadata.walletAddress && (
+            <>
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Wallet</Text>
+                <Text style={styles.metadataValue} numberOfLines={1}>
+                  {holding.metadata.walletAddress.slice(0, 6)}...{holding.metadata.walletAddress.slice(-4)}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.refreshWalletBtn, refreshing && styles.buttonDisabled]}
+                onPress={handleRefreshWallet}
+                disabled={refreshing}
+              >
+                {refreshing ? (
+                  <ActivityIndicator color={theme.colors.accent} size="small" />
+                ) : (
+                  <Text style={styles.refreshWalletBtnText}>Refresh Wallet</Text>
+                )}
+              </TouchableOpacity>
+            </>
           )}
         </View>
       )}
@@ -666,5 +821,48 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     flex: 2,
     textAlign: 'right',
+  },
+  refreshWalletBtn: {
+    marginTop: theme.spacing.xs,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+  },
+  refreshWalletBtnText: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.accent,
+  },
+  fundamentalsSection: {
+    marginBottom: theme.spacing.sm,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
+  metricCard: {
+    flexBasis: '48%',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.sm,
+    padding: theme.spacing.sm,
+  },
+  metricLabel: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    marginBottom: 4,
+  },
+  metricValue: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.textPrimary,
+  },
+  profileSummary: {
+    marginTop: theme.spacing.xs,
+    paddingTop: theme.spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
   },
 });

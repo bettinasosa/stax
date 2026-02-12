@@ -148,10 +148,6 @@ export function BenchmarkComparisonCard({ valueHistory }: Props) {
           )}
         </View>
       )}
-
-      {!hasSpy && hasData && (
-        <Text style={styles.hint}>SPY data requires a Finnhub API key.</Text>
-      )}
     </View>
   );
 }
@@ -256,9 +252,4 @@ const styles = StyleSheet.create({
   },
   positive: { color: theme.colors.positive },
   negative: { color: theme.colors.negative },
-  hint: {
-    ...theme.typography.small,
-    color: theme.colors.textTertiary,
-    marginTop: theme.spacing.xs,
-  },
 });

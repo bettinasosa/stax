@@ -4,13 +4,55 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { holdingRepo } from '../../data';
+import type { Holding } from '../../data/schemas';
 import { usePortfolio } from './usePortfolio';
-import { holdingsWithValues, formatHoldingValueDisplay, type HoldingWithValue } from './portfolioUtils';
+import {
+  holdingsWithValues,
+  formatHoldingValueDisplay,
+  computeHoldingPnl,
+  type HoldingWithValue,
+} from './portfolioUtils';
+import { formatMoney } from '../../utils/money';
 import { exportPortfolioCSV } from '../../services/csvExport';
 import { trackCsvExportCompleted } from '../../services/analytics';
 import { theme } from '../../utils/theme';
 import { PortfolioSelectorHeader } from './PortfolioSelectorHeader';
 import { ProfileHeaderButton } from '../../app/ProfileHeaderButton';
+
+type SortKey = 'value' | 'dailyPct' | 'pnlPct' | 'name';
+
+/** Subtitle line for a holding row by type (ticker, coupon, APY, rental, etc.). */
+function holdingSubtitle(holding: Holding): string {
+  const meta = holding.metadata as {
+    couponRate?: number;
+    issuer?: string;
+    apy?: number;
+    aer?: number;
+    rentalIncome?: number;
+  } | undefined;
+  switch (holding.type) {
+    case 'stock':
+    case 'etf':
+    case 'crypto':
+    case 'metal':
+    case 'commodity':
+      return holding.symbol ?? '';
+    case 'fixed_income':
+      if (meta?.couponRate != null) return `${meta.couponRate}% coupon`;
+      if (meta?.issuer) return meta.issuer;
+      return '';
+    case 'cash':
+      if (meta?.apy != null) return `${meta.apy}% APY`;
+      if (meta?.aer != null) return `${meta.aer}% AER`;
+      return '';
+    case 'real_estate':
+      if (meta?.rentalIncome != null)
+        return `${formatMoney(meta.rentalIncome, holding.currency)}/mo`;
+      return '';
+    default:
+      return '';
+  }
+}
 
 /** Filter pill labels and types they include. */
 const FILTER_PILLS: { label: string; types: string[] }[] = [
@@ -35,6 +77,7 @@ export function HoldingsScreen() {
   const db = useSQLiteContext();
   const { portfolio, holdings, pricesBySymbol, loading, refresh, fxRates } = usePortfolio();
   const [filterIndex, setFilterIndex] = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>('value');
   const [editMode, setEditMode] = useState(false);
 
   useFocusEffect(
@@ -59,10 +102,50 @@ export function HoldingsScreen() {
 
   const activePill = visiblePills[filterIndex] ?? visiblePills[0];
 
-  const filtered = useMemo(() => {
+  const filteredByType = useMemo(() => {
     if (!activePill || activePill.types.length === 0) return withValues;
     return withValues.filter((x) => activePill.types.includes(x.holding.type));
   }, [withValues, activePill]);
+
+  const pnlByHoldingId = useMemo(() => {
+    const map = new Map<string, { pnl: number; pnlPct: number }>();
+    for (const { holding, valueBase } of withValues) {
+      const priceResult = holding.symbol ? pricesBySymbol.get(holding.symbol) ?? null : null;
+      const result = computeHoldingPnl(holding, priceResult, baseCurrency, fxRates);
+      if (result) map.set(holding.id, result);
+    }
+    return map;
+  }, [withValues, pricesBySymbol, baseCurrency, fxRates]);
+
+  const filtered = useMemo(() => {
+    const arr = [...filteredByType];
+    switch (sortKey) {
+      case 'value':
+        arr.sort((a, b) => b.valueBase - a.valueBase);
+        break;
+      case 'name':
+        arr.sort((a, b) => a.holding.name.localeCompare(b.holding.name));
+        break;
+      case 'dailyPct': {
+        arr.sort((a, b) => {
+          const pa = a.holding.symbol ? pricesBySymbol.get(a.holding.symbol)?.changePercent : undefined;
+          const pb = b.holding.symbol ? pricesBySymbol.get(b.holding.symbol)?.changePercent : undefined;
+          const va = pa ?? -Infinity;
+          const vb = pb ?? -Infinity;
+          return vb - va;
+        });
+        break;
+      }
+      case 'pnlPct':
+        arr.sort((a, b) => {
+          const ra = pnlByHoldingId.get(a.holding.id)?.pnlPct ?? -Infinity;
+          const rb = pnlByHoldingId.get(b.holding.id)?.pnlPct ?? -Infinity;
+          return rb - ra;
+        });
+        break;
+    }
+    return arr;
+  }, [filteredByType, sortKey, pricesBySymbol, pnlByHoldingId]);
 
   const handlePress = (item: HoldingWithValue) => {
     (navigation as { navigate: (s: string, p: object) => void }).navigate('HoldingDetail', {
@@ -97,59 +180,75 @@ export function HoldingsScreen() {
     );
   };
 
-  const renderItem = ({ item }: { item: HoldingWithValue }) => (
-    <View style={styles.rowWrapper}>
-      <TouchableOpacity
-        style={styles.row}
-        onPress={() => !editMode && handlePress(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.rowLeft}>
-          <Text style={styles.name} numberOfLines={1}>
-            {item.holding.name}
-          </Text>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{item.holding.type.replace(/_/g, ' ')}</Text>
-          </View>
-        </View>
-        {!editMode && (
-          <View style={styles.rowRight}>
-            <View>
-              <Text style={styles.value}>
-                {formatHoldingValueDisplay(
-                  item.holding,
-                  item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
-                  baseCurrency,
-                  fxRates
-                )}
-              </Text>
-              {item.holding.symbol && (() => {
-                const pr = pricesBySymbol.get(item.holding.symbol!);
-                const pct = pr?.changePercent;
-                if (pct == null || pct === 0) return null;
-                const isPositive = pct > 0;
-                return (
-                  <Text style={[styles.dailyChange, isPositive ? styles.dailyChangeUp : styles.dailyChangeDown]}>
-                    {isPositive ? '+' : ''}{pct.toFixed(2)}%
-                  </Text>
-                );
-              })()}
+  const renderItem = ({ item }: { item: HoldingWithValue }) => {
+    const subtitle = holdingSubtitle(item.holding);
+    const pnl = pnlByHoldingId.get(item.holding.id);
+    return (
+      <View style={styles.rowWrapper}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => !editMode && handlePress(item)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.rowLeft}>
+            <Text style={styles.name} numberOfLines={1}>
+              {item.holding.name}
+            </Text>
+            {subtitle ? (
+              <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+            ) : null}
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{item.holding.type.replace(/_/g, ' ')}</Text>
             </View>
-            <Text style={styles.weight}>{item.weightPercent.toFixed(1)}%</Text>
           </View>
-        )}
-        {editMode && (
-          <TouchableOpacity
-            style={styles.removeCircleBtn}
-            onPress={() => handleDelete(item)}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Text style={styles.removeCircleBtnText}>−</Text>
-          </TouchableOpacity>
-        )}
-      </TouchableOpacity>
-    </View>
-  );
+          {!editMode && (
+            <View style={styles.rowRight}>
+              <View>
+                <Text style={styles.value}>
+                  {formatHoldingValueDisplay(
+                    item.holding,
+                    item.holding.symbol ? pricesBySymbol.get(item.holding.symbol) ?? null : null,
+                    baseCurrency,
+                    fxRates
+                  )}
+                </Text>
+                {pnl ? (
+                  <Text
+                    style={[
+                      styles.pnlPct,
+                      pnl.pnlPct >= 0 ? styles.dailyChangeUp : styles.dailyChangeDown,
+                    ]}
+                  >
+                    {pnl.pnlPct >= 0 ? '+' : ''}{pnl.pnlPct.toFixed(1)}%
+                  </Text>
+                ) : item.holding.symbol ? (() => {
+                  const pr = pricesBySymbol.get(item.holding.symbol!);
+                  const pct = pr?.changePercent;
+                  if (pct == null || pct === 0) return null;
+                  const isPositive = pct > 0;
+                  return (
+                    <Text style={[styles.dailyChange, isPositive ? styles.dailyChangeUp : styles.dailyChangeDown]}>
+                      {isPositive ? '+' : ''}{pct.toFixed(2)}%
+                    </Text>
+                  );
+                })() : null}
+              </View>
+              <Text style={styles.weight}>{item.weightPercent.toFixed(1)}%</Text>
+            </View>
+          )}
+          {editMode && (
+            <TouchableOpacity
+              style={styles.removeCircleBtn}
+              onPress={() => handleDelete(item)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={styles.removeCircleBtnText}>−</Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -185,6 +284,19 @@ export function HoldingsScreen() {
               >
                 <Text style={filterIndex === i ? styles.filterChipTextActive : styles.filterChipText}>
                   {pill.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.sortRow}>
+            {(['value', 'dailyPct', 'pnlPct', 'name'] as const).map((key) => (
+              <TouchableOpacity
+                key={key}
+                style={[styles.sortChip, sortKey === key && styles.sortChipActive]}
+                onPress={() => setSortKey(key)}
+              >
+                <Text style={sortKey === key ? styles.sortChipTextActive : styles.sortChipText}>
+                  {key === 'value' ? 'Value ↓' : key === 'dailyPct' ? 'Daily %' : key === 'pnlPct' ? 'P&L %' : 'Name'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -279,6 +391,33 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     color: theme.colors.background,
   },
+  sortRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: theme.spacing.sm,
+    paddingBottom: theme.spacing.xs,
+    gap: theme.spacing.xs,
+  },
+  sortChip: {
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  sortChipActive: {
+    backgroundColor: theme.colors.textPrimary,
+    borderColor: theme.colors.textPrimary,
+  },
+  sortChipText: {
+    ...theme.typography.small,
+    color: theme.colors.textSecondary,
+  },
+  sortChipTextActive: {
+    ...theme.typography.small,
+    color: theme.colors.background,
+  },
   editRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -335,6 +474,11 @@ const styles = StyleSheet.create({
   name: {
     ...theme.typography.bodyMedium,
     color: theme.colors.textPrimary,
+    marginBottom: 2,
+  },
+  subtitle: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
     marginBottom: theme.spacing.xs,
   },
   badge: {
@@ -354,6 +498,10 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
   },
   dailyChange: {
+    ...theme.typography.small,
+    marginTop: 2,
+  },
+  pnlPct: {
     ...theme.typography.small,
     marginTop: 2,
   },

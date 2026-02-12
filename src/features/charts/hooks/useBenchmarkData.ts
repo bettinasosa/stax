@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getStockCandle, isFinnhubConfigured } from '../../../services/finnhub';
+import { getYahooCandle } from '../../../services/yahooFinance';
 
 type TimeWindow = '7D' | '1M' | '3M' | 'ALL';
 
@@ -28,7 +28,7 @@ export function useBenchmarkData(
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!enabled || !isFinnhubConfigured()) {
+    if (!enabled) {
       setSpyCandle(null);
       return;
     }
@@ -36,13 +36,9 @@ export function useBenchmarkData(
     let cancelled = false;
     setLoading(true);
 
-    const days = TIME_WINDOW_DAYS[timeWindow];
-    const to = Math.floor(Date.now() / 1000);
-    const from = to - days * 86400;
-
-    getStockCandle('SPY', 'D', from, to).then((data) => {
+    getYahooCandle('SPY', timeWindow).then((data) => {
       if (cancelled) return;
-      if (data) {
+      if (data && data.s === 'ok') {
         setSpyCandle({ c: data.c, t: data.t });
       } else {
         setSpyCandle(null);

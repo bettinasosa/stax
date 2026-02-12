@@ -256,6 +256,7 @@ export interface PerfRow {
 export interface PnlRow {
   holdingId: string;
   name: string;
+  type: string;
   costBasis: number;
   currentValue: number;
   pnl: number;
@@ -321,6 +322,7 @@ export function computePerformance(
       pnlRows.push({
         holdingId: holding.id,
         name: holding.name,
+        type: holding.type,
         costBasis: costInBase,
         currentValue: valueBase,
         pnl,
@@ -346,6 +348,36 @@ export function computePerformance(
     totalCostBasis,
     coveragePercent,
   };
+}
+
+export interface AttributionByClassRow {
+  assetClass: string;
+  pnl: number;
+  pnlPct: number;
+}
+
+/**
+ * Group P&L rows by asset type and compute total P&L and P&L % per class.
+ * Sorted by absolute P&L descending.
+ */
+export function computeAttributionByClass(
+  pnlRows: PnlRow[],
+): AttributionByClassRow[] {
+  const byType = new Map<string, { pnl: number; costBasis: number }>();
+  for (const r of pnlRows) {
+    const key = r.type;
+    const cur = byType.get(key) ?? { pnl: 0, costBasis: 0 };
+    cur.pnl += r.pnl;
+    cur.costBasis += r.costBasis;
+    byType.set(key, cur);
+  }
+  return [...byType.entries()]
+    .map(([assetClass, { pnl, costBasis }]) => ({
+      assetClass: assetClass.replace(/_/g, ' '),
+      pnl,
+      pnlPct: costBasis > 0 ? (pnl / costBasis) * 100 : 0,
+    }))
+    .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
 }
 
 // ── Rich insights ───────────────────────────────────────────────────────────

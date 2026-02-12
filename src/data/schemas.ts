@@ -37,6 +37,7 @@ export const holdingMetadataSchema = z
     // Pricing hints (populated during wallet import)
     ethplorerPrice: z.number().optional(),
     underlyingSymbol: z.string().optional(),
+    walletAddress: z.string().optional(),
 
     // Fixed Income fields
     couponRate: z.number().nonnegative().optional(),      // Annual coupon rate as percentage (e.g., 4.5)

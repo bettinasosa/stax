@@ -12,25 +12,21 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
 import { usePortfolio } from '../portfolio/usePortfolio';
-import { holdingsWithValues, allocationByAssetClass, portfolioChange } from '../portfolio/portfolioUtils';
-import { formatMoney } from '../../utils/money';
+import { holdingsWithValues, portfolioChange } from '../portfolio/portfolioUtils';
 import { theme } from '../../utils/theme';
 import { useMultiBenchmarkData } from './hooks/useMultiBenchmarkData';
 import { useEntitlements } from '../analysis/useEntitlements';
 import { EventsTimeline } from './EventsTimeline';
 import { FundamentalsView } from './FundamentalsView';
-import { AllocationDonut } from '../analysis/AllocationDonut';
-import { exposureBreakdown } from '../analysis/analysisUtils';
 import { IndicesAtAGlance } from './IndicesAtAGlance';
 
 type TimeWindow = '7D' | '1M' | '3M' | 'ALL';
-type ChartView = 'portfolio' | 'allocation' | 'events' | 'fundamentals';
+type ChartView = 'portfolio' | 'events' | 'fundamentals';
 
 const TABS: { key: ChartView; label: string }[] = [
   { key: 'fundamentals', label: 'Fundamentals' },
   { key: 'events', label: 'Events' },
   { key: 'portfolio', label: 'Portfolio' },
-  { key: 'allocation', label: 'Allocation' },
 ];
 
 const TIME_WINDOW_DAYS: Record<TimeWindow, number | null> = {
@@ -98,6 +94,7 @@ export function ChartsScreen() {
     [holdings, pricesBySymbol, baseCurrency, fxRates]
   );
 
+  // Allocation is a Pro feature (Deep Analysis only)
   // Filter value history by time window
   const filteredHistory = useMemo(() => {
     const days = TIME_WINDOW_DAYS[timeWindow];
@@ -191,10 +188,6 @@ export function ChartsScreen() {
       ],
     };
   }, [filteredHistory, withValues, hasBenchmarks, benchmark]);
-
-  // Allocation data
-  const allocation = useMemo(() => allocationByAssetClass(withValues), [withValues]);
-  const exposure = useMemo(() => exposureBreakdown(withValues), [withValues]);
 
   const screenWidth = Dimensions.get('window').width;
 
@@ -381,42 +374,6 @@ export function ChartsScreen() {
                   : 'Add more data points by refreshing over time'}
             </Text>
           </View>
-        </View>
-      )}
-
-      {/* Allocation (Donut charts by category) */}
-      {chartView === 'allocation' && (
-        <View style={styles.chartSection}>
-          {/* Value summary cards */}
-          {allocation.length > 0 && (
-            <View style={styles.chartCard}>
-              <Text style={styles.allocationSummaryTitle}>By Value</Text>
-              {allocation.map((a) => (
-                <View key={a.assetClass} style={styles.allocationValueRow}>
-                  <Text style={styles.allocationClassName}>
-                    {a.assetClass.replace(/_/g, ' ')}
-                  </Text>
-                  <View style={styles.allocationValueRight}>
-                    <Text style={styles.allocationValueText}>
-                      {formatMoney(a.value, baseCurrency)}
-                    </Text>
-                    <Text style={styles.allocationPctText}>
-                      {a.percent.toFixed(1)}%
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Interactive donut charts */}
-          <AllocationDonut exposure={exposure} />
-
-          {allocation.length === 0 && (
-            <View style={styles.chartCard}>
-              <Text style={styles.emptyText}>No allocation data available</Text>
-            </View>
-          )}
         </View>
       )}
 
@@ -654,37 +611,6 @@ const styles = StyleSheet.create({
   legendLabel: {
     ...theme.typography.small,
     color: theme.colors.textSecondary,
-  },
-
-  // Allocation value rows
-  allocationSummaryTitle: {
-    ...theme.typography.bodyMedium,
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs,
-  },
-  allocationValueRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  allocationClassName: {
-    ...theme.typography.caption,
-    color: theme.colors.textSecondary,
-    textTransform: 'capitalize',
-  },
-  allocationValueRight: {
-    alignItems: 'flex-end',
-  },
-  allocationValueText: {
-    ...theme.typography.captionMedium,
-    color: theme.colors.textPrimary,
-  },
-  allocationPctText: {
-    ...theme.typography.small,
-    color: theme.colors.textTertiary,
   },
 
   // Compare button

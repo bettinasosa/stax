@@ -124,6 +124,10 @@ export function WalletImportForm({ onBack }: WalletImportFormProps) {
         if (underlying) {
           metadata.underlyingSymbol = underlying;
         }
+        const trimmedAddr = walletAddress.trim().toLowerCase();
+        if (trimmedAddr) {
+          metadata.walletAddress = trimmedAddr;
+        }
         const metadataOrUndef = Object.keys(metadata).length > 0 ? metadata : undefined;
         const parsed = createListedHoldingSchema.safeParse({
           portfolioId,
@@ -243,7 +247,7 @@ export function WalletImportForm({ onBack }: WalletImportFormProps) {
               Found {walletHoldings.length} holding{walletHoldings.length !== 1 ? 's' : ''}
             </Text>
             <Text style={styles.note}>
-              Tokens already in your portfolio will be skipped. Swipe left to remove.
+              Tokens already in your portfolio will be skipped. Tap − to remove items you don't want.
             </Text>
             {walletHoldings.map((h) => (
               <WalletHoldingRow key={h.id} holding={h} onRemove={handleRemoveHolding} />
