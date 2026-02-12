@@ -8,6 +8,8 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  Linking,
+  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -23,9 +25,8 @@ import { SUPPORTED_PRICE_FEEDS } from '../../services/supportedFeeds';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { isSupabaseConfigured } from '../../services/supabase';
 import { CloudBackupSection } from './CloudBackupSection';
-import { useUpcomingAlerts } from '../alerts/useUpcomingAlerts';
-import { AlertsList } from '../alerts/AlertsList';
 import { theme } from '../../utils/theme';
+import Purchases from 'react-native-purchases';
 
 /**
  * Settings: base currency, supported feeds, notifications, restore purchases.
@@ -46,10 +47,8 @@ export function SettingsScreen() {
     holdingsCount: number;
     eventsCount: number;
   } | null>(null);
-  const [dbRaw, setDbRaw] = useState<{ portfolio: unknown[]; holding: unknown[]; event: unknown[] } | null>(null);
   const [clearing, setClearing] = useState(false);
   const { signOut } = useAuth();
-  const { items: upcomingAlerts, loading: alertsLoading } = useUpcomingAlerts(activePortfolioId);
 
   useEffect(() => {
     if (!portfolio || !activePortfolioId) {
@@ -110,6 +109,25 @@ export function SettingsScreen() {
     }
   };
 
+  const handleManageSubscription = async () => {
+    try {
+      await Purchases.showManageSubscriptions();
+    } catch {
+      const fallbackUrl =
+        Platform.OS === 'ios'
+          ? 'https://apps.apple.com/account/subscriptions'
+          : 'https://play.google.com/store/account/subscriptions';
+
+      const opened = await Linking.openURL(fallbackUrl).catch(() => false);
+      if (!opened) {
+        Alert.alert(
+          'Manage subscription',
+          'Open your App Store or Play Store subscriptions to manage your Stax Pro plan.'
+        );
+      }
+    }
+  };
+
   const handleClearAllData = () => {
     Alert.alert(
       'Start from scratch',
@@ -124,7 +142,6 @@ export function SettingsScreen() {
             try {
               await clearAllData(db);
               setDbSummary(null);
-              setDbRaw(null);
               Alert.alert('Done', 'Your data has been deleted. You can start fresh.', [
                 { text: 'OK', onPress: () => navigation.goBack() },
               ]);
@@ -158,13 +175,6 @@ export function SettingsScreen() {
     }
   };
 
-  const handlePressAlert = (holdingId: string, _eventId: string) => {
-    (navigation as { navigate: (s: string, p: object) => void }).navigate('Holdings', {
-      screen: 'HoldingDetail',
-      params: { holdingId },
-    });
-  };
-
   if (loading) {
     return (
       <View style={styles.center}>
@@ -184,23 +194,6 @@ export function SettingsScreen() {
           <Text style={styles.mutedSmall}>
             Data is stored on this device. {isSupabaseConfigured() ? 'Sign out below if you use an account.' : 'No account required for local use.'}
           </Text>
-          <TouchableOpacity
-            style={[styles.buttonDanger, styles.buttonDangerTop, clearing && styles.buttonDisabled]}
-            onPress={handleClearAllData}
-            disabled={clearing}
-          >
-            {clearing ? (
-              <ActivityIndicator size="small" color={theme.colors.negative} />
-            ) : (
-              <Text style={styles.buttonDangerText}>Delete all data & start from scratch</Text>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.buttonSecondary}
-            onPress={() => (navigation as { navigate: (name: string) => void }).navigate('ImportCSV')}
-          >
-            <Text style={styles.buttonSecondaryText}>Import from CSV</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.buttonSecondary}
             onPress={() => (navigation as { navigate: (name: string) => void }).navigate('Portfolios')}
@@ -235,11 +228,6 @@ export function SettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Supported price feeds</Text>
-        <Text style={styles.feedsText}>{SUPPORTED_PRICE_FEEDS}</Text>
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notifications</Text>
         <Text style={styles.muted}>
           {notificationsEnabled
@@ -254,36 +242,29 @@ export function SettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Upcoming events & reminders</Text>
+        <Text style={styles.sectionTitle}>Subscription</Text>
         <Text style={styles.muted}>
-          {upcomingAlerts.length === 0
-            ? 'No upcoming alerts for your holdings'
-            : `${upcomingAlerts.length} upcoming event${upcomingAlerts.length !== 1 ? 's' : ''}`}
+          {isPro
+            ? 'You have Stax Pro with full access to insights and analytics.'
+            : 'You are using the free version of Stax. Upgrade to Stax Pro to unlock full insights.'}
         </Text>
-        {upcomingAlerts.length > 0 && (
-          <View style={styles.alertsContainer}>
-            <AlertsList
-              items={upcomingAlerts.slice(0, 5)}
-              onPressAlert={handlePressAlert}
-              loading={alertsLoading}
-            />
-            {upcomingAlerts.length > 5 && (
-              <Text style={styles.muted}>
-                Showing 5 of {upcomingAlerts.length} alerts. View holdings for more details.
-              </Text>
-            )}
-          </View>
+        {isPro ? (
+          <TouchableOpacity
+            style={styles.buttonSecondary}
+            onPress={handleManageSubscription}
+          >
+            <Text style={styles.buttonSecondaryText}>Manage subscription</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.buttonSecondary}
+            onPress={() => (navigation as { navigate: (name: string, params?: object) => void }).navigate('Paywall', {
+              trigger: 'Manage subscription',
+            })}
+          >
+            <Text style={styles.buttonSecondaryText}>View Stax Pro options</Text>
+          </TouchableOpacity>
         )}
-        <TouchableOpacity
-          style={styles.buttonSecondary}
-          onPress={() => (navigation as { navigate: (s: string) => void }).navigate('Holdings')}
-        >
-          <Text style={styles.buttonSecondaryText}>Manage events in Holdings</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Purchases</Text>
         <TouchableOpacity
           style={[styles.buttonSecondary, restoring && styles.buttonDisabled]}
           onPress={handleRestore}
@@ -295,44 +276,6 @@ export function SettingsScreen() {
             <Text style={styles.buttonSecondaryText}>Restore purchases</Text>
           )}
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>View database</Text>
-        <Text style={styles.muted}>
-          See raw tables (portfolio, holding, event). Useful for debugging. The SQLite file lives in the app sandbox on device/simulator.
-        </Text>
-        <TouchableOpacity
-          style={styles.buttonSecondary}
-          onPress={async () => {
-            const [portfolioRows] = await db.getAllAsync<unknown[]>('SELECT * FROM portfolio').then((r) => [r]).catch(() => [[]]);
-            const [holdingRows] = await db.getAllAsync<unknown[]>('SELECT * FROM holding LIMIT 30').then((r) => [r]).catch(() => [[]]);
-            const [eventRows] = await db.getAllAsync<unknown[]>('SELECT * FROM event LIMIT 30').then((r) => [r]).catch(() => [[]]);
-            setDbRaw({
-              portfolio: Array.isArray(portfolioRows) ? portfolioRows : [],
-              holding: Array.isArray(holdingRows) ? holdingRows : [],
-              event: Array.isArray(eventRows) ? eventRows : [],
-            });
-          }}
-        >
-          <Text style={styles.buttonSecondaryText}>{dbRaw ? 'Refresh tables' : 'Show tables'}</Text>
-        </TouchableOpacity>
-        {dbRaw && (
-          <View style={styles.dbRaw}>
-            <Text style={styles.dbRawTitle}>portfolio</Text>
-            <Text style={styles.dbRawJson} selectable>
-              {JSON.stringify(dbRaw.portfolio, null, 2)}
-            </Text>
-            <Text style={styles.dbRawTitle}>holding (max 30)</Text>
-            <Text style={styles.dbRawJson} selectable>
-              {JSON.stringify(dbRaw.holding, null, 2)}
-            </Text>
-            <Text style={styles.dbRawTitle}>event (max 30)</Text>
-            <Text style={styles.dbRawJson} selectable>
-              {JSON.stringify(dbRaw.event, null, 2)}
-            </Text>
-          </View>
-        )}
       </View>
 
       {isSupabaseConfigured() && isPro && <CloudBackupSection />}
@@ -353,6 +296,34 @@ export function SettingsScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Data tools</Text>
+        {dbSummary != null && (
+          <TouchableOpacity
+            style={[styles.buttonDanger, styles.buttonDangerTop, clearing && styles.buttonDisabled]}
+            onPress={handleClearAllData}
+            disabled={clearing}
+          >
+            {clearing ? (
+              <ActivityIndicator size="small" color={theme.colors.negative} />
+            ) : (
+              <Text style={styles.buttonDangerText}>Delete all data & start from scratch</Text>
+            )}
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={styles.buttonSecondary}
+          onPress={() => (navigation as { navigate: (name: string) => void }).navigate('ImportCSV')}
+        >
+          <Text style={styles.buttonSecondaryText}>Import from CSV</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Supported price feeds</Text>
+        <Text style={styles.feedsText}>{SUPPORTED_PRICE_FEEDS}</Text>
+      </View>
     </ScrollView>
   );
 }
@@ -424,23 +395,6 @@ const styles = StyleSheet.create({
     color: theme.colors.textTertiary,
     marginTop: theme.spacing.xs,
   },
-  dbRaw: {
-    marginTop: theme.spacing.sm,
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.sm,
-    borderRadius: theme.radius.sm,
-  },
-  dbRawTitle: {
-    ...theme.typography.small,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs,
-  },
-  dbRawJson: {
-    fontSize: 11,
-    fontFamily: 'monospace',
-    color: theme.colors.textSecondary,
-  },
   buttonDanger: {
     padding: theme.spacing.sm,
     borderRadius: theme.layout.cardRadius,
@@ -454,9 +408,5 @@ const styles = StyleSheet.create({
   buttonDangerText: {
     color: theme.colors.negative,
     ...theme.typography.body,
-  },
-  alertsContainer: {
-    marginTop: theme.spacing.xs,
-    marginBottom: theme.spacing.xs,
   },
 });

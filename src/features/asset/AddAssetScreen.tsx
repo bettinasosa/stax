@@ -61,7 +61,7 @@ export function AddAssetScreen() {
   const route = useRoute();
   const initialTypeParam = (route.params as AddAssetRouteParams | undefined)?.initialType;
   const { isPro } = useEntitlements();
-  const { activePortfolioId } = usePortfolio();
+  const { activePortfolioId, refresh } = usePortfolio();
 
   const [flow, setFlow] = useState<Flow>(() => {
     if (initialTypeParam && ASSET_TYPES.includes(initialTypeParam)) {
@@ -110,6 +110,10 @@ export function AddAssetScreen() {
   const [purchasePrice, setPurchasePrice] = useState('');
   const [purchaseDate, setPurchaseDate] = useState('');
 
+  // Cash metadata (savings account APY / AER)
+  const [cashApy, setCashApy] = useState('');
+  const [cashAer, setCashAer] = useState('');
+
   const selectType = (type: AssetType) => {
     if (ASSET_TYPE_LISTED.includes(type as AssetTypeListed)) {
       setFlow('listed');
@@ -125,7 +129,7 @@ export function AddAssetScreen() {
     if (!isPro) {
       const count = await holdingRepo.countByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
       if (count >= FREE_HOLDINGS_LIMIT) {
-        (navigation as any).navigate('Paywall', { trigger: `holdings limit (${FREE_HOLDINGS_LIMIT})` });
+        (navigation as any).navigate('Paywall', { trigger: `Unlock unlimited holdings — add more than ${FREE_HOLDINGS_LIMIT} positions` });
         return;
       }
     }
@@ -164,6 +168,18 @@ export function AddAssetScreen() {
       if (Object.keys(metadata).length === 0) metadata = undefined;
     }
 
+    if (nonListedType === 'cash') {
+      const apyVal = parseFloat(cashApy);
+      const aerVal = parseFloat(cashAer);
+      const hasApy = cashApy.trim() && !isNaN(apyVal) && apyVal >= 0;
+      const hasAer = cashAer.trim() && !isNaN(aerVal) && aerVal >= 0;
+      if (hasApy || hasAer) {
+        metadata = { ...(metadata ?? {}) };
+        if (hasApy) metadata.apy = apyVal;
+        if (hasAer) metadata.aer = aerVal;
+      }
+    }
+
     const parsed = createNonListedHoldingSchema.safeParse({
       portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: nonListedType,
@@ -193,6 +209,7 @@ export function AddAssetScreen() {
           trackEventCreated();
         }
       }
+      refresh();
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');
@@ -290,6 +307,28 @@ export function AddAssetScreen() {
         onChangeText={setNonListedCurrency}
         placeholder="USD"
       />
+
+      {nonListedType === 'cash' && (
+        <>
+          <Text style={styles.sectionLabel}>Savings / interest (optional)</Text>
+          <Text style={styles.label}>APY (%)</Text>
+          <TextInput
+            style={styles.input}
+            value={cashApy}
+            onChangeText={setCashApy}
+            placeholder="e.g. 4.5 for 4.5% savings account"
+            keyboardType="decimal-pad"
+          />
+          <Text style={styles.label}>AER (%)</Text>
+          <TextInput
+            style={styles.input}
+            value={cashAer}
+            onChangeText={setCashAer}
+            placeholder="e.g. 4.6 Annual Equivalent Rate (UK/Europe)"
+            keyboardType="decimal-pad"
+          />
+        </>
+      )}
 
       {nonListedType === 'fixed_income' && (
         <>

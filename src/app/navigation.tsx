@@ -16,7 +16,6 @@ import { PortfolioComparisonScreen } from '../features/charts/PortfolioCompariso
 import { AnalysisScreen } from '../features/analysis/AnalysisScreen';
 import { theme } from '../utils/theme';
 import { ProfileHeaderButton } from './ProfileHeaderButton';
-import { AddAssetHeaderButton } from './AddAssetHeaderButton';
 import { PortfolioSelectorHeader } from '../features/portfolio/PortfolioSelectorHeader';
 
 const Tab = createBottomTabNavigator();
@@ -29,7 +28,7 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
 }
 
 const tabIcons = {
-  Overview: (props: { focused: boolean }) => <TabIcon emoji="🏠" focused={props.focused} />,
+  Overview: (props: { focused: boolean }) => <TabIcon emoji="💼" focused={props.focused} />,
   Holdings: (props: { focused: boolean }) => <TabIcon emoji="📋" focused={props.focused} />,
   Charts: (props: { focused: boolean }) => <TabIcon emoji="📈" focused={props.focused} />,
   Insights: (props: { focused: boolean }) => <TabIcon emoji="📊" focused={props.focused} />,
@@ -56,7 +55,7 @@ function ChartsStack() {
         name="ChartsMain"
         component={ChartsScreen}
         options={{
-          title: 'Charts',
+          title: 'Breakdown',
           headerLeft: () => <PortfolioSelectorHeader />,
         }}
       />
@@ -79,21 +78,13 @@ function HoldingsStack() {
       screenOptions={{
         headerShown: true,
         ...screenOptions,
-        headerRight: () => <ProfileHeaderButton />,
       }}
     >
       <Stack.Screen
         name="HoldingsList"
         component={HoldingsScreen}
         options={{
-          title: 'Holdings',
-          headerLeft: () => <PortfolioSelectorHeader />,
-          headerRight: () => (
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <AddAssetHeaderButton />
-              <ProfileHeaderButton />
-            </View>
-          ),
+          headerShown: false,
         }}
       />
       <Stack.Screen
@@ -153,7 +144,7 @@ export function AppNavigation() {
         name="Charts"
         component={ChartsStack}
         options={{
-          title: 'Charts',
+          title: 'Breakdown',
           headerShown: false,
           tabBarIcon: tabIcons.Charts,
         }}

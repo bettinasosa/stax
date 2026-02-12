@@ -65,7 +65,17 @@ export function useBenchmarkData(
     const since = new Date();
     since.setDate(since.getDate() - days);
     const sinceISO = since.toISOString();
-    const filtered = valueHistory.filter((v) => v.timestamp >= sinceISO);
+    const raw = valueHistory.filter((v) => v.timestamp >= sinceISO);
+
+    // Deduplicate to one snapshot per calendar day (keep the last entry per day)
+    const dailyMap = new Map<string, number>();
+    for (const { timestamp, valueBase } of raw) {
+      dailyMap.set(timestamp.slice(0, 10), valueBase);
+    }
+    const filtered = Array.from(dailyMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, valueBase]) => ({ timestamp: day + 'T00:00:00.000Z', valueBase }));
+
     if (filtered.length < 2) {
       return { portfolioReturns: null, spyReturns: null, labels: null };
     }

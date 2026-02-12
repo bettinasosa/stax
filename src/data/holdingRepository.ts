@@ -90,9 +90,10 @@ export async function createNonListed(
   input: CreateNonListedHoldingInput
 ): Promise<Holding> {
   const id = generateId();
+  const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
   await db.runAsync(
-    `INSERT INTO holding (id, portfolio_id, type, name, manual_value, currency)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO holding (id, portfolio_id, type, name, manual_value, currency, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.portfolioId,
@@ -100,6 +101,7 @@ export async function createNonListed(
       input.name,
       input.manualValue,
       input.currency,
+      metadataJson,
     ]
   );
   return getById(db, id) as Promise<Holding>;

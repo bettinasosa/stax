@@ -165,6 +165,8 @@ export function exposureBreakdown(withValues: HoldingWithValue[]): ExposureSlice
   const bySector = new Map<string, number>();
 
   for (const { holding, valueBase } of withValues) {
+    const meta = holding.metadata as { country?: string; sector?: string } | undefined;
+
     byAssetClass.set(
       holding.type,
       (byAssetClass.get(holding.type) ?? 0) + valueBase
@@ -173,12 +175,53 @@ export function exposureBreakdown(withValues: HoldingWithValue[]): ExposureSlice
       holding.currency,
       (byCurrency.get(holding.currency) ?? 0) + valueBase
     );
-    const meta = holding.metadata as { country?: string; sector?: string } | undefined;
-    if (meta?.country && ['stock', 'etf'].includes(holding.type)) {
-      byCountry.set(meta.country, (byCountry.get(meta.country) ?? 0) + valueBase);
+
+    // Country:
+    // - Stocks/ETFs/real estate: use metadata.country when available
+    // - Crypto: treat as "Online / Digital"
+    // - Cash: derive a country/region label from the currency code
+    let countryKey: string | null = null;
+    if (['stock', 'etf', 'real_estate'].includes(holding.type) && meta?.country) {
+      countryKey = meta.country;
+    } else if (holding.type === 'crypto') {
+      countryKey = 'Online / Digital';
+    } else if (holding.type === 'cash') {
+      const currencyCountryMap: Record<string, string> = {
+        USD: 'United States',
+        GBP: 'United Kingdom',
+        EUR: 'Eurozone',
+        CHF: 'Switzerland',
+        JPY: 'Japan',
+        AUD: 'Australia',
+        NZD: 'New Zealand',
+        CAD: 'Canada',
+        SEK: 'Sweden',
+        NOK: 'Norway',
+        DKK: 'Denmark',
+        SGD: 'Singapore',
+        HKD: 'Hong Kong',
+      };
+      countryKey = currencyCountryMap[holding.currency] ?? holding.currency;
     }
+    if (countryKey) {
+      byCountry.set(countryKey, (byCountry.get(countryKey) ?? 0) + valueBase);
+    }
+
+    // Sector: stocks/ETFs use metadata; other types fall back to their asset class label
     if (meta?.sector && ['stock', 'etf'].includes(holding.type)) {
       bySector.set(meta.sector, (bySector.get(meta.sector) ?? 0) + valueBase);
+    } else if (!['stock', 'etf'].includes(holding.type)) {
+      const fallbackSector: Record<string, string> = {
+        crypto: 'Crypto',
+        metal: 'Precious Metals',
+        commodity: 'Commodities',
+        real_estate: 'Real Estate',
+        fixed_income: 'Fixed Income',
+        cash: 'Cash',
+        other: 'Other',
+      };
+      const label = fallbackSector[holding.type] ?? holding.type;
+      bySector.set(label, (bySector.get(label) ?? 0) + valueBase);
     }
   }
 
@@ -631,24 +674,32 @@ export interface SharpeResult {
 
 /**
  * Sharpe ratio from portfolio value snapshots.
- * Returns null if fewer than 20 data points (not enough for meaningful stats).
+ * Deduplicates snapshots to one per calendar day (last value of each day)
+ * to avoid inflated annualization from intraday refresh frequency.
+ * Returns null if fewer than 20 daily data points.
  */
 export function computeSharpe(
   valueHistory: { timestamp: string; valueBase: number }[],
   riskFreeRate: number = 0.045,
 ): SharpeResult | null {
-  if (valueHistory.length < 20) return null;
+  // Deduplicate to one snapshot per calendar day (keep the last entry per day)
+  const dailyMap = new Map<string, number>();
+  for (const { timestamp, valueBase } of valueHistory) {
+    const day = timestamp.slice(0, 10); // "YYYY-MM-DD"
+    dailyMap.set(day, valueBase);
+  }
+  const daily = Array.from(dailyMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, v]) => v);
 
-  // Compute period returns
+  if (daily.length < 20) return null;
+
+  // Daily returns
   const returns: number[] = [];
-  const gaps: number[] = [];
-  for (let i = 1; i < valueHistory.length; i++) {
-    const prev = valueHistory[i - 1].valueBase;
+  for (let i = 1; i < daily.length; i++) {
+    const prev = daily[i - 1];
     if (prev <= 0) continue;
-    returns.push((valueHistory[i].valueBase - prev) / prev);
-    const gapMs = new Date(valueHistory[i].timestamp).getTime() -
-      new Date(valueHistory[i - 1].timestamp).getTime();
-    gaps.push(gapMs / (1000 * 60 * 60 * 24));
+    returns.push((daily[i] - prev) / prev);
   }
 
   if (returns.length < 10) return null;
@@ -659,9 +710,8 @@ export function computeSharpe(
 
   if (stdDev === 0) return { sharpe: 0, annualizedReturn: 0, annualizedVolatility: 0 };
 
-  const avgGapDays = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-  const periodsPerYear = avgGapDays > 0 ? 365 / avgGapDays : 252;
-
+  // Annualize assuming 252 trading days per year
+  const periodsPerYear = 252;
   const annualizedReturn = meanReturn * periodsPerYear;
   const annualizedVolatility = stdDev * Math.sqrt(periodsPerYear);
   const sharpe = (annualizedReturn - riskFreeRate) / annualizedVolatility;

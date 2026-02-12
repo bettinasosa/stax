@@ -5,7 +5,7 @@ import Purchases, {
   type PurchasesPackage,
 } from 'react-native-purchases';
 
-const ENTITLEMENT_PRO = 'pro';
+const ENTITLEMENT_PRO = 'Stax Pro';
 const API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY_IOS ?? '';
 const API_KEY_ANDROID = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY_ANDROID ?? '';
 
@@ -33,9 +33,8 @@ export function configureRevenueCat(): void {
  * Check if the user has the Pro entitlement.
  */
 export function isProFromCustomerInfo(customerInfo: CustomerInfo | null): boolean {
-  if (!customerInfo?.entitlements) return false;
-  const ent = customerInfo.entitlements as Record<string, { isActive?: boolean }>;
-  return Boolean(ent[ENTITLEMENT_PRO]?.isActive);
+  if (!customerInfo?.entitlements?.active) return false;
+  return customerInfo.entitlements.active[ENTITLEMENT_PRO] != null;
 }
 
 /**
@@ -75,15 +74,19 @@ export async function getOfferings(): Promise<PurchasesOfferings | null> {
 }
 
 /**
- * Purchase a subscription package. Returns CustomerInfo on success, null if
+ * Purchase a subscription package. Returns fresh CustomerInfo on success, null if
  * the user cancelled, or throws on unexpected errors.
+ *
+ * We re-fetch CustomerInfo after purchase because the object returned by
+ * purchasePackage can be stale and may not yet reflect the new entitlement.
  */
 export async function purchasePackage(
   pkg: PurchasesPackage,
 ): Promise<CustomerInfo | null> {
   try {
-    const { customerInfo } = await Purchases.purchasePackage(pkg);
-    return customerInfo;
+    await Purchases.purchasePackage(pkg);
+    // Re-fetch to guarantee entitlements are up to date
+    return await Purchases.getCustomerInfo();
   } catch (e: unknown) {
     const err = e as { userCancelled?: boolean };
     if (err.userCancelled) return null;

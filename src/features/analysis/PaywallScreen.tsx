@@ -42,12 +42,18 @@ const FEATURES = [
  * Shown when the user hits a Pro-gated feature or free limit.
  */
 export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenProps) {
-  const { isPro, loading, purchase, restorePurchases } = useEntitlements();
+  const { isPro, loading, refresh, purchase, restorePurchases } = useEntitlements();
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [selectedPkg, setSelectedPkg] = useState<PurchasesPackage | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [loadingOfferings, setLoadingOfferings] = useState(true);
+  const [firedSuccessForPro, setFiredSuccessForPro] = useState(false);
+
+  /* Re-fetch entitlements when Paywall opens so we don't show paywall with stale data (e.g. after restore elsewhere). */
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   /* Fetch available packages from RevenueCat on mount */
   useEffect(() => {
@@ -65,9 +71,15 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
     return () => { mounted = false; };
   }, [trigger]);
 
-  /* If already Pro, fire success and render nothing */
+  /* If already Pro, fire success via effect (to avoid setState during render) */
+  useEffect(() => {
+    if (isPro && !firedSuccessForPro) {
+      setFiredSuccessForPro(true);
+      if (onSuccess) onSuccess();
+    }
+  }, [isPro, firedSuccessForPro, onSuccess]);
+
   if (isPro) {
-    if (onSuccess) onSuccess();
     return null;
   }
 
@@ -99,8 +111,8 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
           'The transaction did not activate Stax Pro yet. If you are testing in Expo Go (Browser Mode), use a development build or TestFlight to validate in-app purchases reliably.'
         );
       }
-    } catch {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong. Please try again.');
     } finally {
       setPurchasing(false);
     }
@@ -124,11 +136,16 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
 
   const busy = purchasing || restoring;
 
+  const hasTrial = selectedPkg?.product?.introPrice != null;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
       <Text style={styles.title}>Stax Pro</Text>
       <Text style={styles.subtitle}>Unlock full portfolio insights</Text>
+      <Text style={styles.outcomeLine}>
+        Compare to S&P 500, see your Stax Score, and get allocation insights.
+      </Text>
 
       {/* Feature bullets */}
       <View style={styles.features}>
@@ -140,9 +157,9 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
         ))}
       </View>
 
-      {/* Trigger hint */}
+      {/* Trigger hint — benefit-first when trigger is provided */}
       {trigger ? (
-        <Text style={styles.trigger}>You've hit a free limit: {trigger}</Text>
+        <Text style={styles.trigger}>{trigger}</Text>
       ) : null}
 
       {/* Package selector */}
@@ -150,6 +167,7 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
         <View style={styles.packages}>
           {packages.map((pkg) => {
             const selected = pkg.identifier === selectedPkg?.identifier;
+            const trialLabel = getTrialLabel(pkg);
             return (
               <TouchableOpacity
                 key={pkg.identifier}
@@ -157,6 +175,11 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
                 onPress={() => setSelectedPkg(pkg)}
                 activeOpacity={0.7}
               >
+                {trialLabel ? (
+                  <Text style={[styles.packageTrialBadge, selected && styles.packageTrialBadgeSelected]}>
+                    {trialLabel}
+                  </Text>
+                ) : null}
                 <Text style={[styles.packageTitle, selected && styles.packageTitleSelected]}>
                   {packageLabel(pkg)}
                 </Text>
@@ -178,7 +201,7 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
         </View>
       )}
 
-      {/* Subscribe CTA */}
+      {/* Subscribe CTA — show trial when available */}
       <TouchableOpacity
         style={[styles.subscribeBtn, busy && styles.buttonDisabled]}
         onPress={handlePurchase}
@@ -189,7 +212,11 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
           <ActivityIndicator color={theme.colors.background} size="small" />
         ) : (
           <Text style={styles.subscribeBtnText}>
-            {selectedPkg ? `Subscribe ${selectedPkg.product.priceString}${periodSuffix(selectedPkg)}` : 'Subscribe'}
+            {selectedPkg
+              ? hasTrial
+                ? `Start ${getTrialLabel(selectedPkg) ?? 'free trial'}`
+                : `Subscribe ${selectedPkg.product.priceString}${periodSuffix(selectedPkg)}`
+              : 'Subscribe'}
           </Text>
         )}
       </TouchableOpacity>
@@ -218,6 +245,23 @@ export function PaywallScreen({ trigger, onDismiss, onSuccess }: PaywallScreenPr
 }
 
 /* ---------- helpers ---------- */
+
+/**
+ * Returns a short trial label when the package has an intro offer (e.g. "7-day free trial").
+ * Used on package cards and the main CTA.
+ */
+function getTrialLabel(pkg: PurchasesPackage): string | null {
+  const intro = pkg.product?.introPrice;
+  if (!intro) return null;
+  // Optional: use period from StoreKit if available (e.g. periodNumberOfUnits + periodUnit)
+  const raw = intro as { periodNumberOfUnits?: number; periodUnit?: string } | undefined;
+  if (raw?.periodNumberOfUnits != null && raw?.periodUnit != null) {
+    const unit = raw.periodUnit === 'DAY' ? 'day' : raw.periodUnit === 'WEEK' ? 'week' : raw.periodUnit === 'MONTH' ? 'month' : 'day';
+    const n = raw.periodNumberOfUnits;
+    return `${n}-${unit} free trial`;
+  }
+  return 'Free trial';
+}
 
 /** Human-friendly label for a package type. */
 function packageLabel(pkg: PurchasesPackage): string {
@@ -270,6 +314,11 @@ const styles = StyleSheet.create({
   subtitle: {
     ...theme.typography.body,
     color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
+  },
+  outcomeLine: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
     marginBottom: theme.spacing.lg,
   },
   /* Features */
@@ -311,6 +360,14 @@ const styles = StyleSheet.create({
   packageCardSelected: {
     borderColor: theme.colors.white,
     backgroundColor: theme.colors.surface,
+  },
+  packageTrialBadge: {
+    ...theme.typography.small,
+    color: theme.colors.positive,
+    marginBottom: 4,
+  },
+  packageTrialBadgeSelected: {
+    color: theme.colors.positive,
   },
   packageTitle: {
     ...theme.typography.captionMedium,

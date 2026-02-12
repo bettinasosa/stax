@@ -34,6 +34,10 @@ export const holdingMetadataSchema = z
     contractAddress: z.string().optional(),
     network: z.string().optional(),
 
+    // Pricing hints (populated during wallet import)
+    ethplorerPrice: z.number().optional(),
+    underlyingSymbol: z.string().optional(),
+
     // Fixed Income fields
     couponRate: z.number().nonnegative().optional(),      // Annual coupon rate as percentage (e.g., 4.5)
     issuer: z.string().optional(),                        // Bond issuer name (e.g., "US Treasury", "Apple Inc.")
@@ -48,6 +52,10 @@ export const holdingMetadataSchema = z
     rentalIncome: z.number().nonnegative().optional(),    // Monthly or annual rental income
     purchasePrice: z.number().nonnegative().optional(),   // Original purchase price
     purchaseDate: z.string().datetime().optional(),       // ISO date string
+
+    // Cash fields (e.g. savings account)
+    apy: z.number().nonnegative().optional(),             // Annual percentage yield as percentage (e.g. 4.5)
+    aer: z.number().nonnegative().optional(),             // Annual equivalent rate as percentage (e.g. UK/Europe savings)
   })
   .strict()
   .optional();

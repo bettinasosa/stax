@@ -1,21 +1,16 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  RefreshControl,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { holdingRepo } from '../../data';
 import { usePortfolio } from './usePortfolio';
 import { holdingsWithValues, formatHoldingValueDisplay, type HoldingWithValue } from './portfolioUtils';
 import { exportPortfolioCSV } from '../../services/csvExport';
 import { trackCsvExportCompleted } from '../../services/analytics';
 import { theme } from '../../utils/theme';
+import { PortfolioSelectorHeader } from './PortfolioSelectorHeader';
+import { ProfileHeaderButton } from '../../app/ProfileHeaderButton';
 
 /** Filter pill labels and types they include. */
 const FILTER_PILLS: { label: string; types: string[] }[] = [
@@ -156,78 +151,103 @@ export function HoldingsScreen() {
     </View>
   );
 
-  if (holdings.length === 0) {
-    return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>No holdings yet</Text>
-        <Text style={styles.emptyText}>
-          Add your first asset to see your portfolio.
-        </Text>
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => (navigation as { navigate: (s: string) => void }).navigate('AddAsset')}
-        >
-          <Text style={styles.primaryButtonText}>Add asset</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.filters}>
-        {visiblePills.map((pill, i) => (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.header}>
+        <View style={styles.headerSide}>
+          <PortfolioSelectorHeader />
+        </View>
+        <Text style={styles.headerTitle}>Holdings</Text>
+        <View style={[styles.headerSide, styles.headerRight]}>
+          <ProfileHeaderButton />
+        </View>
+      </View>
+
+      {holdings.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>No holdings yet</Text>
+          <Text style={styles.emptyText}>Add your first asset to see your portfolio.</Text>
           <TouchableOpacity
-            key={pill.label}
-            style={[styles.filterChip, filterIndex === i && styles.filterChipActive]}
-            onPress={() => setFilterIndex(i)}
+            style={styles.primaryButton}
+            onPress={() => (navigation as { navigate: (s: string) => void }).navigate('AddAsset')}
           >
-            <Text style={filterIndex === i ? styles.filterChipTextActive : styles.filterChipText}>
-              {pill.label}
-            </Text>
+            <Text style={styles.primaryButtonText}>Add asset</Text>
           </TouchableOpacity>
-        ))}
-      </View>
-      <View style={styles.editRow}>
-        <TouchableOpacity style={styles.editButton} onPress={handleExport}>
-          <Text style={styles.editButtonText}>Export</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.editButton, editMode && styles.editButtonActive]}
-          onPress={() => setEditMode((prev) => !prev)}
-        >
-          <Text style={editMode ? styles.editButtonTextActive : styles.editButtonText}>
-            {editMode ? 'Done' : 'Edit'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.holding.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
-        }
-      />
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => {
-          const initialType = activePill?.types.length > 0 ? activePill.types[0] : undefined;
-          (navigation as { navigate: (s: string, p?: { initialType?: string }) => void }).navigate(
-            'AddAsset',
-            initialType ? { initialType } : undefined
-          );
-        }}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabText}>+ Add</Text>
-      </TouchableOpacity>
-    </View>
+        </View>
+      ) : (
+        <View style={styles.container}>
+          <View style={styles.filters}>
+            {visiblePills.map((pill, i) => (
+              <TouchableOpacity
+                key={pill.label}
+                style={[styles.filterChip, filterIndex === i && styles.filterChipActive]}
+                onPress={() => setFilterIndex(i)}
+              >
+                <Text style={filterIndex === i ? styles.filterChipTextActive : styles.filterChipText}>
+                  {pill.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.editRow}>
+            <TouchableOpacity style={styles.editButton} onPress={handleExport}>
+              <Text style={styles.editButtonText}>Export</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.editButton, editMode && styles.editButtonActive]}
+              onPress={() => setEditMode((prev) => !prev)}
+            >
+              <Text style={editMode ? styles.editButtonTextActive : styles.editButtonText}>
+                {editMode ? 'Done' : 'Edit'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.holding.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={theme.colors.textPrimary} />
+            }
+          />
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={() => {
+              const initialType = activePill?.types.length > 0 ? activePill.types[0] : undefined;
+              (navigation as { navigate: (s: string, p?: { initialType?: string }) => void }).navigate(
+                'AddAsset',
+                initialType ? { initialType } : undefined
+              );
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.fabText}>+ Add</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: theme.colors.background },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.layout.screenPadding,
+    paddingBottom: theme.spacing.sm,
+  },
+  headerSide: {
+    flex: 1,
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+  },
+  headerTitle: {
+    ...theme.typography.bodySemi,
+    color: theme.colors.textPrimary,
+  },
   container: { flex: 1, backgroundColor: theme.colors.background },
   listContent: {
     padding: theme.layout.screenPadding,

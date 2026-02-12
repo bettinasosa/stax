@@ -28,18 +28,5 @@
         "autoIncrement": true
       }
     }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleId": null,
-        "ascAppId": null,
-        "appleTeamId": null
-      },
-      "android": {
-        "serviceAccountKeyPath": null,
-        "track": "internal"
-      }
-    }
   }
 }

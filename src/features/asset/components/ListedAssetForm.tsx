@@ -59,7 +59,7 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
   const db = useSQLiteContext();
   const navigation = useNavigation();
   const { isPro } = useEntitlements();
-  const { activePortfolioId } = usePortfolio();
+  const { activePortfolioId, refresh } = usePortfolio();
 
   const [symbol, setSymbol] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -115,6 +115,8 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
       try {
         const results = await searchCryptoCoins(symbol.trim());
         setCryptoSearchResults(results);
+      } catch {
+        // CoinGecko list fetch may fail (rate limit, network); silently ignore
       } finally {
         setCryptoSearchLoading(false);
       }
@@ -152,7 +154,7 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
     if (!isPro) {
       const count = await holdingRepo.countByPortfolioId(db, activePortfolioId ?? DEFAULT_PORTFOLIO_ID);
       if (count >= FREE_HOLDINGS_LIMIT) {
-        (navigation as any).navigate('Paywall', { trigger: `holdings limit (${FREE_HOLDINGS_LIMIT})` });
+        (navigation as any).navigate('Paywall', { trigger: `Unlock unlimited holdings — add more than ${FREE_HOLDINGS_LIMIT} positions` });
         return;
       }
     }
@@ -188,6 +190,7 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
       await holdingRepo.createListed(db, parsed.data);
       await getLatestPrice(db, parsed.data.symbol, listedType, parsed.data.metadata ?? undefined);
       trackHoldingAdded(listedType, true);
+      refresh();
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');

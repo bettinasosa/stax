@@ -29,7 +29,7 @@ export const LIABILITY_TYPES = ['mortgage', 'loan', 'credit_card', 'other'] as c
 export type LiabilityType = (typeof LIABILITY_TYPES)[number];
 
 /** Free-tier limit for number of holdings. Bypassed in dev builds. */
-export const FREE_HOLDINGS_LIMIT = __DEV__ ? 9999 : 15;
+export const FREE_HOLDINGS_LIMIT = __DEV__ ? 9999 : 25;
 export const FREE_REMINDER_SCHEDULES_LIMIT = 1;
 export const DEFAULT_REMIND_DAYS_BEFORE = 3;
 export const STAX_SCORE_TOP_HOLDING_THRESHOLD = 25;

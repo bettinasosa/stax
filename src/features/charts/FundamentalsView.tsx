@@ -280,7 +280,7 @@ export function FundamentalsView({ holdings }: Props) {
             </View>
           )}
 
-          {/* Deep Dive: Metric explanations + Company Profile */}
+          {/* Deep Dive: Quick health check, metric explanations + Company Profile */}
           {showDeepDive && (
             <>
               {/* Company Profile */}
@@ -295,6 +295,22 @@ export function FundamentalsView({ holdings }: Props) {
                     {profile.ipo ? <ProfileRow label="IPO Date" value={profile.ipo} /> : null}
                     {profile.weburl ? <ProfileRow label="Website" value={profile.weburl} /> : null}
                   </View>
+                </View>
+              )}
+
+              {/* Quick Health Check */}
+              {metrics?.metric && (
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Quick Health Check</Text>
+                  {generateHealthChecks(metrics.metric).map((check, i) => (
+                    <View key={i} style={styles.healthRow}>
+                      <View style={[styles.healthDot, { backgroundColor: check.color }]} />
+                      <View style={styles.healthContent}>
+                        <Text style={styles.healthTitle}>{check.title}</Text>
+                        <Text style={styles.healthBody}>{check.body}</Text>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               )}
 
@@ -315,22 +331,6 @@ export function FundamentalsView({ holdings }: Props) {
                   </View>
                 ))}
               </View>
-
-              {/* Quick Health Check */}
-              {metrics?.metric && (
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Quick Health Check</Text>
-                  {generateHealthChecks(metrics.metric).map((check, i) => (
-                    <View key={i} style={styles.healthRow}>
-                      <View style={[styles.healthDot, { backgroundColor: check.color }]} />
-                      <View style={styles.healthContent}>
-                        <Text style={styles.healthTitle}>{check.title}</Text>
-                        <Text style={styles.healthBody}>{check.body}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
             </>
           )}
         </>

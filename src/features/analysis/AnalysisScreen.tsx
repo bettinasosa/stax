@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   RefreshControl,
   TouchableOpacity,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useEntitlements } from './useEntitlements';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingsWithValues, allocationByAssetClass } from '../portfolio/portfolioUtils';
@@ -26,6 +26,7 @@ import { PerformanceCard } from './PerformanceCard';
 import { ConcentrationBars } from './ConcentrationBars';
 import { MarketPulse } from './MarketPulse';
 import { PerformanceMetricsCard } from './PerformanceMetricsCard';
+import { BenchmarkComparisonCard } from './BenchmarkComparisonCard';
 import { DividendAnalyticsCard } from './DividendAnalyticsCard';
 import { useDividendAnalytics } from './hooks/useDividendAnalytics';
 import { theme } from '../../utils/theme';
@@ -56,21 +57,28 @@ export function AnalysisScreen() {
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const [activeTab, setActiveTab] = useState<InsightsTab>('score');
 
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+      refreshEntitlements();
+    }, [refresh, refreshEntitlements])
+  );
+
   const handleTabPress = (tab: InsightsTab) => {
     // Market, analysis, and dividends tabs require Pro
     const requiresPro = tab === 'market' || tab === 'analysis' || tab === 'dividends';
-    
+
     if (requiresPro && !isPro) {
       const triggers: Record<InsightsTab, string> = {
-        market: 'Market Pulse requires Stax Pro',
-        analysis: 'Deep Analysis requires Stax Pro',
-        dividends: 'Dividend Analytics requires Stax Pro',
-        score: '', // Not used
+        market: 'Unlock Market Pulse — analyst sentiment & price targets',
+        analysis: 'Unlock Deep Analysis — benchmarks, TWRR, allocation & more',
+        dividends: 'Unlock Dividend Analytics — yield, income calendar & more',
+        score: '',
       };
       (navigation as any).navigate('Paywall', { trigger: triggers[tab] });
       return;
     }
-    
+
     setActiveTab(tab);
   };
 
@@ -192,6 +200,23 @@ export function AnalysisScreen() {
               largestAssetClassPercent={largestAssetClassPercent}
             />
           </View>
+
+          {/* Pro preview CTA — make it obvious this tab is a taste of Pro */}
+          {!isPro && (
+            <View style={styles.proPreviewBanner}>
+              <Text style={styles.proPreviewTitle}>This is a preview of your insights</Text>
+              <Text style={styles.proPreviewText}>
+                Unlock Market Pulse, Deep Analysis, and Dividends with Stax Pro — benchmarks, allocation, and more.
+              </Text>
+              <TouchableOpacity
+                style={styles.proPreviewCta}
+                onPress={() => (navigation as any).navigate('Paywall', { trigger: 'Score & Insights preview' })}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.proPreviewCtaText}>Unlock with Stax Pro</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </>
       )}
 
@@ -201,24 +226,48 @@ export function AnalysisScreen() {
       {/* ══════════════ Deep Analysis ══════════════ */}
       {activeTab === 'analysis' && (
         <>
+          {/* Benchmark comparison vs S&P 500 */}
+          <BenchmarkComparisonCard valueHistory={valueHistory} />
+
+          {/* Deep analysis explainer */}
+          <View style={styles.section}>
+            <Text style={styles.sectionSubtext}>
+              Deep Analysis helps you understand what is driving your returns, how balanced your
+              allocation is, and where concentration risk might be hiding.
+            </Text>
+          </View>
+
           {/* TWRR & Sharpe (Pro) */}
           <PerformanceMetricsCard twrr={twrr} sharpe={sharpe} />
 
           {/* Allocation Donuts */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Allocation Breakdown</Text>
+            <Text style={styles.sectionSubtext}>
+              See how your portfolio is split across asset classes and themes. A more balanced mix
+              can reduce the impact of any single bucket on your overall returns.
+            </Text>
             <AllocationDonut exposure={exposure} />
           </View>
 
           {/* Performance */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Performance</Text>
+            <Text style={styles.sectionSubtext}>
+              Spot which positions are driving gains and losses today, plus your unrealized P&amp;L
+              across the portfolio.
+            </Text>
             <PerformanceCard performance={performance} baseCurrency={baseCurrency} />
           </View>
 
           {/* Concentration (full) */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Concentration Detail</Text>
+            <Text style={styles.sectionSubtext}>
+              Each bar shows how much of your portfolio sits in a single holding, group of holdings,
+              or theme. The thin vertical line is a diversification guideline — when bars push past
+              it (especially in amber or red), it signals areas where you may want to trim exposure.
+            </Text>
             <ConcentrationBars
               concentration={concentration}
               largestAssetClassPercent={largestAssetClassPercent}
@@ -314,6 +363,11 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     marginBottom: theme.spacing.xs,
   },
+  sectionSubtext: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    marginBottom: theme.spacing.xs,
+  },
   insightCard: {
     padding: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
@@ -340,5 +394,36 @@ const styles = StyleSheet.create({
     ...theme.typography.small,
     color: theme.colors.textSecondary,
     paddingLeft: 16,
+  },
+
+  // Pro preview banner (Score & Insights tab)
+  proPreviewBanner: {
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.layout.cardRadius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  proPreviewTitle: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  proPreviewText: {
+    ...theme.typography.small,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.sm,
+  },
+  proPreviewCta: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.colors.textPrimary,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.radius.sm,
+  },
+  proPreviewCtaText: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.background,
   },
 });

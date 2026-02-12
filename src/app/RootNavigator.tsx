@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
+import { EntitlementsProvider } from '../contexts/EntitlementsContext';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { SignUpScreen } from '../features/auth/SignUpScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
@@ -88,45 +89,47 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        screenOptions={{
-          headerStyle: { backgroundColor: theme.colors.background },
-          headerTintColor: theme.colors.textPrimary,
-          headerShadowVisible: false,
-          contentStyle: { backgroundColor: theme.colors.background },
-        }}
-      >
-        <Stack.Screen
-          name="Main"
-          component={AppNavigation}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{ title: 'Settings' }}
-        />
-        <Stack.Screen
-          name="ImportCSV"
-          component={ImportCSVScreen}
-          options={{ title: 'Import from CSV' }}
-        />
-        <Stack.Screen
-          name="Portfolios"
-          component={PortfoliosScreen}
-          options={{ title: 'Portfolios' }}
-        />
-        <Stack.Screen
-          name="Paywall"
-          component={PaywallScreenWrapper}
-          options={{ 
-            title: 'Stax Pro',
-            presentation: 'modal',
+    <EntitlementsProvider>
+      <NavigationContainer>
+        <Stack.Navigator
+          screenOptions={{
+            headerStyle: { backgroundColor: theme.colors.background },
+            headerTintColor: theme.colors.textPrimary,
+            headerShadowVisible: false,
+            contentStyle: { backgroundColor: theme.colors.background },
           }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+        >
+          <Stack.Screen
+            name="Main"
+            component={AppNavigation}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{ title: 'Settings' }}
+          />
+          <Stack.Screen
+            name="ImportCSV"
+            component={ImportCSVScreen}
+            options={{ title: 'Import from CSV' }}
+          />
+          <Stack.Screen
+            name="Portfolios"
+            component={PortfoliosScreen}
+            options={{ title: 'Portfolios' }}
+          />
+          <Stack.Screen
+            name="Paywall"
+            component={PaywallScreenWrapper}
+            options={{
+              title: 'Stax Pro',
+              presentation: 'modal',
+            }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </EntitlementsProvider>
   );
 }
 

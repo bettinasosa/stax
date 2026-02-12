@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,28 +9,25 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
 import { usePortfolio } from '../portfolio/usePortfolio';
-import { holdingsWithValues, allocationByAssetClass } from '../portfolio/portfolioUtils';
+import { holdingsWithValues, allocationByAssetClass, portfolioChange } from '../portfolio/portfolioUtils';
 import { formatMoney } from '../../utils/money';
 import { theme } from '../../utils/theme';
 import { useMultiBenchmarkData } from './hooks/useMultiBenchmarkData';
 import { useEntitlements } from '../analysis/useEntitlements';
 import { EventsTimeline } from './EventsTimeline';
 import { FundamentalsView } from './FundamentalsView';
-import { MarketPulse } from '../analysis/MarketPulse';
 import { AllocationDonut } from '../analysis/AllocationDonut';
 import { exposureBreakdown } from '../analysis/analysisUtils';
-import { CandlestickChart } from './CandlestickChart';
+import { IndicesAtAGlance } from './IndicesAtAGlance';
 
 type TimeWindow = '7D' | '1M' | '3M' | 'ALL';
-type ChartView = 'portfolio' | 'allocation' | 'sentiment' | 'events' | 'fundamentals';
-type ChartStyle = 'line' | 'candle';
+type ChartView = 'portfolio' | 'allocation' | 'events' | 'fundamentals';
 
 const TABS: { key: ChartView; label: string }[] = [
   { key: 'fundamentals', label: 'Fundamentals' },
-  { key: 'sentiment', label: 'Sentiment' },
   { key: 'events', label: 'Events' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'allocation', label: 'Allocation' },
@@ -53,13 +50,17 @@ const BENCHMARK_OPTIONS = [
 export function ChartsScreen() {
   const navigation = useNavigation();
   const { portfolio, holdings, pricesBySymbol, loading, refresh, valueHistory, fxRates, portfolios } = usePortfolio();
-  const { isPro } = useEntitlements();
+  const { isPro, refresh: refreshEntitlements } = useEntitlements();
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshEntitlements();
+    }, [refreshEntitlements])
+  );
+
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('1M');
   const [chartView, setChartView] = useState<ChartView>('fundamentals');
   const [selectedBenchmarks, setSelectedBenchmarks] = useState<string[]>([]);
-  const [chartStyle, setChartStyle] = useState<ChartStyle>('line');
-  /** Which benchmark symbol to show as candlestick (defaults to first selected). */
-  const [candleSymbol, setCandleSymbol] = useState<string>('SPY');
 
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const withValues = useMemo(
@@ -67,32 +68,23 @@ export function ChartsScreen() {
     [holdings, pricesBySymbol, baseCurrency, fxRates]
   );
 
-  // Multi-benchmark data
+  // Multi-benchmark data: only fetch when Pro to avoid rate limits (free users see Indices at a glance from cache)
+  const benchmarkSymbolsForChart = isPro ? selectedBenchmarks : [];
   const benchmarkConfig = useMemo(
     () => BENCHMARK_OPTIONS.filter((b) => selectedBenchmarks.includes(b.symbol)),
     [selectedBenchmarks]
   );
-  // Always fetch SPY candle data for candlestick view even when no benchmark is selected
-  const candleFetchSymbols = useMemo(() => {
-    const set = new Set(selectedBenchmarks);
-    if (chartStyle === 'candle') set.add(candleSymbol);
-    return [...set];
-  }, [selectedBenchmarks, chartStyle, candleSymbol]);
-
-  const benchmark = useMultiBenchmarkData(timeWindow, candleFetchSymbols, valueHistory, benchmarkConfig);
+  const benchmark = useMultiBenchmarkData(timeWindow, benchmarkSymbolsForChart, valueHistory, benchmarkConfig);
 
   const handleTabPress = (key: ChartView) => {
-    if (key === 'sentiment' && !isPro) {
-      (navigation as any).navigate('Paywall', { trigger: 'Market Pulse requires Stax Pro' });
-      return;
-    }
     setChartView(key);
   };
 
   const toggleBenchmark = (symbol: string) => {
-    const opt = BENCHMARK_OPTIONS.find((b) => b.symbol === symbol);
-    if (opt && !opt.free && !isPro) {
-      (navigation as any).navigate('Paywall', { trigger: 'Pro benchmarks require Stax Pro' });
+    if (!isPro) {
+      (navigation as any).navigate('Paywall', {
+        trigger: 'Unlock Pro to compare your portfolio to S&P 500, NASDAQ & more',
+      });
       return;
     }
     setSelectedBenchmarks((prev) =>
@@ -100,7 +92,11 @@ export function ChartsScreen() {
     );
   };
 
-  const hasBenchmarks = selectedBenchmarks.length > 0;
+  const hasBenchmarks = isPro && selectedBenchmarks.length > 0;
+  const portfolioChangeResult = useMemo(
+    () => portfolioChange(holdings, pricesBySymbol, baseCurrency, fxRates),
+    [holdings, pricesBySymbol, baseCurrency, fxRates]
+  );
 
   // Filter value history by time window
   const filteredHistory = useMemo(() => {
@@ -125,6 +121,11 @@ export function ChartsScreen() {
       const range = max - min || 1;
       const pad = range * 0.15;
 
+      // Padding dataset must match label/data length to avoid chart-kit glitches
+      const paddingDataset = benchmark.portfolioReturns.map((_, idx) =>
+        idx % 2 === 0 ? min - pad : max + pad
+      );
+
       const datasets = [
         { data: benchmark.portfolioReturns, color: (): string => theme.colors.white, strokeWidth: 3 },
         ...benchmark.benchmarks.map((b) => ({
@@ -132,7 +133,12 @@ export function ChartsScreen() {
           color: (): string => b.color,
           strokeWidth: 2,
         })),
-        { data: [min - pad, max + pad], color: (): string => 'transparent', strokeWidth: 0, withDots: false },
+        {
+          data: paddingDataset,
+          color: (): string => 'transparent',
+          strokeWidth: 0,
+          withDots: false,
+        },
       ];
 
       return { labels: benchmark.labels, datasets };
@@ -167,11 +173,21 @@ export function ChartsScreen() {
     const range = max - min || 1;
     const pad = range * 0.12;
 
+    // Padding dataset must match label/data length to avoid chart-kit glitches
+    const paddingDataset = values.map((_, idx) =>
+      idx % 2 === 0 ? min - pad : max + pad
+    );
+
     return {
       labels,
       datasets: [
         { data: values, color: (): string => theme.colors.white, strokeWidth: 3 },
-        { data: [min - pad, max + pad], color: (): string => 'transparent', strokeWidth: 0, withDots: false },
+        {
+          data: paddingDataset,
+          color: (): string => 'transparent',
+          strokeWidth: 0,
+          withDots: false,
+        },
       ],
     };
   }, [filteredHistory, withValues, hasBenchmarks, benchmark]);
@@ -193,7 +209,7 @@ export function ChartsScreen() {
       >
         <Text style={styles.emptyTitle}>No holdings yet</Text>
         <Text style={styles.emptyText}>
-          Add assets to your portfolio to see charts and performance analysis.
+          Add assets to your portfolio to see breakdowns and performance analysis.
         </Text>
       </ScrollView>
     );
@@ -208,7 +224,7 @@ export function ChartsScreen() {
       }
     >
       {portfolio && (
-        <Text style={styles.portfolioLabel}>Charts for {portfolio.name}</Text>
+        <Text style={styles.portfolioLabel}>Breakdown for {portfolio.name}</Text>
       )}
 
       {/* Scrollable Tab Bar */}
@@ -226,7 +242,6 @@ export function ChartsScreen() {
             >
               <Text style={[styles.tabText, chartView === tab.key && styles.tabTextActive]}>
                 {tab.label}
-                {tab.key === 'sentiment' && !isPro ? ' (Pro)' : ''}
               </Text>
             </TouchableOpacity>
           ))}
@@ -239,7 +254,7 @@ export function ChartsScreen() {
           style={styles.compareButton}
           onPress={() => {
             if (!isPro) {
-              (navigation as any).navigate('Paywall', { trigger: 'Portfolio comparison requires Stax Pro' });
+              (navigation as any).navigate('Paywall', { trigger: 'Unlock portfolio comparison — side-by-side performance' });
               return;
             }
             (navigation as any).navigate('PortfolioComparison');
@@ -254,38 +269,14 @@ export function ChartsScreen() {
       {/* Portfolio Value Chart */}
       {chartView === 'portfolio' && (
         <View style={styles.chartSection}>
-          {/* Line / Candle + Time Window Row */}
-          <View style={styles.chartStyleRow}>
-            <View style={styles.chartStyleToggle}>
-              <TouchableOpacity
-                style={[styles.chartStylePill, chartStyle === 'line' && styles.chartStylePillActive]}
-                onPress={() => setChartStyle('line')}
-              >
-                <Text
-                  style={[
-                    styles.chartStyleText,
-                    chartStyle === 'line' && styles.chartStyleTextActive,
-                  ]}
-                >
-                  Line
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chartStylePill, chartStyle === 'candle' && styles.chartStylePillActive]}
-                onPress={() => setChartStyle('candle')}
-              >
-                <Text
-                  style={[
-                    styles.chartStyleText,
-                    chartStyle === 'candle' && styles.chartStyleTextActive,
-                  ]}
-                >
-                  Candle
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          {/* Indices at a glance (cache-only; no candle API calls) */}
+          <IndicesAtAGlance
+            portfolioChangePct={
+              portfolioChangeResult?.pct != null ? portfolioChangeResult.pct * 100 : null
+            }
+          />
 
+          {/* Time Window Row */}
           <View style={styles.timeWindowRow}>
             {(['7D', '1M', '3M', 'ALL'] as TimeWindow[]).map((w) => (
               <TouchableOpacity
@@ -318,7 +309,7 @@ export function ChartsScreen() {
                     <Text style={[styles.benchmarkText, active && { color: opt.color }]}>
                       {opt.label}
                     </Text>
-                    {!opt.free && !isPro && (
+                    {!isPro && (
                       <Text style={styles.proBadge}>PRO</Text>
                     )}
                   </TouchableOpacity>
@@ -326,36 +317,6 @@ export function ChartsScreen() {
               })}
             </View>
           </ScrollView>
-
-          {/* Candlestick symbol selector (when in candle mode) */}
-          {chartStyle === 'candle' && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.benchmarkRow}>
-              <View style={styles.benchmarkPillsContainer}>
-                {BENCHMARK_OPTIONS.map((opt) => (
-                  <TouchableOpacity
-                    key={opt.symbol}
-                    style={[
-                      styles.benchmarkToggle,
-                      candleSymbol === opt.symbol && {
-                        backgroundColor: opt.color + '20',
-                        borderColor: opt.color,
-                      },
-                    ]}
-                    onPress={() => setCandleSymbol(opt.symbol)}
-                  >
-                    <Text
-                      style={[
-                        styles.benchmarkText,
-                        candleSymbol === opt.symbol && { color: opt.color },
-                      ]}
-                    >
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          )}
 
           {/* Loading / error state */}
           {benchmark.loading && (
@@ -371,69 +332,53 @@ export function ChartsScreen() {
           )}
 
           <View style={styles.chartCard}>
-            {/* Line chart view */}
-            {chartStyle === 'line' && (
-              <>
-                <LineChart
-                  data={portfolioChartData}
-                  width={screenWidth - 32}
-                  height={220}
-                  chartConfig={{
-                    backgroundColor: 'transparent',
-                    backgroundGradientFrom: 'transparent',
-                    backgroundGradientTo: 'transparent',
-                    decimalPlaces: hasBenchmarks ? 1 : 0,
-                    color: (): string => theme.colors.white,
-                    strokeWidth: 3,
-                    linejoinType: 'round',
-                    labelColor: (): string => theme.colors.textSecondary,
-                    propsForDots: { r: 0 },
-                    propsForLabels: { fontSize: 10 },
-                  }}
-                  withShadow={false}
-                  withInnerLines={false}
-                  withOuterLines={false}
-                  withVerticalLabels={false}
-                  withHorizontalLabels={hasBenchmarks}
-                  fromZero={false}
-                  style={styles.chart}
-                />
+            <LineChart
+              data={portfolioChartData}
+              width={screenWidth - 32}
+              height={220}
+              chartConfig={{
+                backgroundColor: 'transparent',
+                backgroundGradientFrom: 'transparent',
+                backgroundGradientTo: 'transparent',
+                decimalPlaces: hasBenchmarks ? 1 : 0,
+                color: (): string => theme.colors.white,
+                strokeWidth: 3,
+                linejoinType: 'round',
+                labelColor: (): string => theme.colors.textSecondary,
+                propsForDots: { r: 0 },
+                propsForLabels: { fontSize: 10 },
+              }}
+              withShadow={false}
+              withInnerLines={false}
+              withOuterLines={false}
+              withVerticalLabels={false}
+              withHorizontalLabels={hasBenchmarks}
+              fromZero={false}
+              style={styles.chart}
+            />
 
-                {/* Legend for benchmark mode */}
-                {hasBenchmarks && (
-                  <View style={styles.legendRow}>
-                    <View style={styles.legendItem}>
-                      <View style={[styles.legendLine, { backgroundColor: theme.colors.white }]} />
-                      <Text style={styles.legendLabel}>Portfolio</Text>
-                    </View>
-                    {benchmark.benchmarks.map((b) => (
-                      <View key={b.symbol} style={styles.legendItem}>
-                        <View style={[styles.legendLine, { backgroundColor: b.color }]} />
-                        <Text style={styles.legendLabel}>{b.label}</Text>
-                      </View>
-                    ))}
+            {/* Legend for benchmark mode */}
+            {hasBenchmarks && (
+              <View style={styles.legendRow}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendLine, { backgroundColor: theme.colors.white }]} />
+                  <Text style={styles.legendLabel}>Portfolio</Text>
+                </View>
+                {benchmark.benchmarks.map((b) => (
+                  <View key={b.symbol} style={styles.legendItem}>
+                    <View style={[styles.legendLine, { backgroundColor: b.color }]} />
+                    <Text style={styles.legendLabel}>{b.label}</Text>
                   </View>
-                )}
-              </>
-            )}
-
-            {/* Candlestick chart view */}
-            {chartStyle === 'candle' && (
-              <CandlestickChart
-                candles={benchmark.candlestickData.get(candleSymbol) ?? []}
-                width={screenWidth - 32}
-                height={220}
-              />
+                ))}
+              </View>
             )}
 
             <Text style={styles.chartCaption}>
-              {chartStyle === 'candle'
-                ? `${BENCHMARK_OPTIONS.find((o) => o.symbol === candleSymbol)?.label ?? candleSymbol} OHLC (${timeWindow === 'ALL' ? 'all time' : timeWindow.toLowerCase()})`
-                : hasBenchmarks
-                  ? `Performance comparison (% return, ${timeWindow === 'ALL' ? 'all time' : timeWindow.toLowerCase()})`
-                  : filteredHistory.length >= 2
-                    ? `Portfolio value over ${timeWindow === 'ALL' ? 'all time' : timeWindow.toLowerCase()}`
-                    : 'Add more data points by refreshing over time'}
+              {hasBenchmarks
+                ? `Performance comparison (% return, ${timeWindow === 'ALL' ? 'all time' : timeWindow.toLowerCase()})`
+                : filteredHistory.length >= 2
+                  ? `Portfolio value over ${timeWindow === 'ALL' ? 'all time' : timeWindow.toLowerCase()}`
+                  : 'Add more data points by refreshing over time'}
             </Text>
           </View>
         </View>
@@ -472,13 +417,6 @@ export function ChartsScreen() {
               <Text style={styles.emptyText}>No allocation data available</Text>
             </View>
           )}
-        </View>
-      )}
-
-      {/* Sentiment (Analyst Recommendations) */}
-      {chartView === 'sentiment' && (
-        <View style={styles.chartSection}>
-          <MarketPulse holdings={holdings} />
         </View>
       )}
 

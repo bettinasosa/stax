@@ -376,6 +376,24 @@ export function HoldingDetailScreen() {
         </View>
       )}
 
+      {holding.type === 'cash' && (holding.metadata?.apy != null || holding.metadata?.aer != null) && (
+        <View style={styles.metadataSection}>
+          <Text style={styles.metadataTitle}>Savings / interest</Text>
+          {holding.metadata.apy != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>APY:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.apy}%</Text>
+            </View>
+          )}
+          {holding.metadata.aer != null && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>AER:</Text>
+              <Text style={styles.metadataValue}>{holding.metadata.aer}%</Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Edit holding</Text>
         <Text style={styles.label}>Name</Text>

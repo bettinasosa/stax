@@ -222,7 +222,7 @@ export function OverviewScreen() {
 
   const handleExportPDF = async () => {
     if (!isPro) {
-      (navigation as any).navigate('Paywall', { trigger: 'PDF Report requires Stax Pro' });
+      (navigation as any).navigate('Paywall', { trigger: 'Unlock PDF Report — export your portfolio summary' });
       return;
     }
     if (!portfolio) return;

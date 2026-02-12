@@ -95,7 +95,7 @@ export function WalletImportForm({ onBack }: WalletImportFormProps) {
     const count = existingHoldings.length;
     const allowed = isPro ? newOnly.length : Math.max(0, FREE_HOLDINGS_LIMIT - count);
     if (allowed <= 0) {
-      (navigation as any).navigate('Paywall', { trigger: `holdings limit (${FREE_HOLDINGS_LIMIT})` });
+      (navigation as any).navigate('Paywall', { trigger: `Unlock unlimited holdings — add more than ${FREE_HOLDINGS_LIMIT} positions` });
       return;
     }
     const toImport = newOnly.slice(0, allowed);
@@ -112,13 +112,13 @@ export function WalletImportForm({ onBack }: WalletImportFormProps) {
     try {
       for (const h of toImport) {
         // Build metadata: contract address, Ethplorer price, underlying symbol
-        const metadata: Record<string, string> = {};
+        const metadata: Record<string, string | number> = {};
         if (h.contractAddress) {
           metadata.contractAddress = h.contractAddress;
           metadata.network = 'ethereum';
         }
         if (h.priceUsd != null && h.priceUsd > 0) {
-          metadata.ethplorerPrice = String(h.priceUsd);
+          metadata.ethplorerPrice = h.priceUsd;
         }
         const underlying = resolveUnderlyingSymbol(h.symbol);
         if (underlying) {
@@ -181,7 +181,7 @@ export function WalletImportForm({ onBack }: WalletImportFormProps) {
             }
             const unpricedMsg = unpricedCount > 0 ? ` ${unpricedCount} unpriced (set manually).` : '';
             Alert.alert('Import completed', `Cost basis: ${lots.length} lots.${unpricedMsg}`, [
-              { text: 'OK', onPress: () => navigation.goBack() },
+              { text: 'OK', onPress: () => { refresh(); navigation.goBack(); } },
             ]);
             return;
           }
@@ -192,9 +192,10 @@ export function WalletImportForm({ onBack }: WalletImportFormProps) {
 
       if (failed.length > 0) {
         Alert.alert('Import completed with errors', `Failed to add: ${failed.join(', ')}`, [
-          { text: 'OK', onPress: () => navigation.goBack() },
+          { text: 'OK', onPress: () => { refresh(); navigation.goBack(); } },
         ]);
       } else {
+        refresh();
         navigation.goBack();
       }
     } finally {

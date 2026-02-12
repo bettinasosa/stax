@@ -3,6 +3,63 @@ import { getYahooCandle } from '../../../services/yahooFinance';
 import { getStockCandle, isFinnhubConfigured } from '../../../services/finnhub';
 import type { CandleData } from '../CandlestickChart';
 
+// ---------------------------------------------------------------------------
+// Alpha Vantage daily candle helper (25 free requests/day, cached 4 hrs)
+// ---------------------------------------------------------------------------
+
+interface AVCandle {
+  c: number[]; h: number[]; l: number[]; o: number[]; t: number[]; v: number[];
+}
+const _avCache = new Map<string, { data: AVCandle; expiresAt: number }>();
+
+async function getAlphaVantageCandle(symbol: string): Promise<AVCandle | null> {
+  const apiKey = process.env.EXPO_PUBLIC_ALPHA_VANTAGE_API_KEY;
+  if (!apiKey) return null;
+
+  const cacheKey = `av_candle_${symbol}`;
+  const cached = _avCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+
+  try {
+    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&outputsize=full&apikey=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[AlphaVantage] Candle ${symbol}: HTTP ${res.status}`);
+      return null;
+    }
+    type AVDailyRow = { '1. open': string; '2. high': string; '3. low': string; '4. close': string; '5. volume': string };
+    const data = await res.json() as { 'Time Series (Daily)'?: Record<string, AVDailyRow>; Note?: string; Information?: string };
+    if (data.Note || data.Information) {
+      console.warn(`[AlphaVantage] Candle ${symbol}: rate limited`);
+      return null;
+    }
+    const series = data['Time Series (Daily)'];
+    if (!series) return null;
+
+    const entries = Object.entries(series).sort((a, b) => a[0].localeCompare(b[0]));
+    const opens: number[] = [], highs: number[] = [], lows: number[] = [];
+    const closes: number[] = [], volumes: number[] = [], timestamps: number[] = [];
+
+    for (const [date, row] of entries) {
+      opens.push(parseFloat(row['1. open']));
+      highs.push(parseFloat(row['2. high']));
+      lows.push(parseFloat(row['3. low']));
+      closes.push(parseFloat(row['4. close']));
+      volumes.push(parseInt(row['5. volume'], 10));
+      timestamps.push(Math.floor(new Date(date + 'T12:00:00Z').getTime() / 1000));
+    }
+    if (closes.length === 0) return null;
+
+    console.log(`[AlphaVantage] Candle ${symbol}: ${closes.length} data points`);
+    const candle = { c: closes, h: highs, l: lows, o: opens, t: timestamps, v: volumes };
+    _avCache.set(cacheKey, { data: candle, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
+    return candle;
+  } catch (err) {
+    console.warn(`[AlphaVantage] Candle ${symbol}:`, err);
+    return null;
+  }
+}
+
 type TimeWindow = '7D' | '1M' | '3M' | 'ALL';
 
 const TIME_WINDOW_DAYS: Record<TimeWindow, number> = {
@@ -30,7 +87,7 @@ interface RawCandle {
 
 /**
  * Fetch candle data for a single symbol.
- * Tries Yahoo Finance first (free, no API key), falls back to Finnhub.
+ * Tries Finnhub first (configured API key, reliable), falls back to Yahoo Finance.
  */
 async function fetchCandleWithFallback(
   sym: string,
@@ -38,17 +95,7 @@ async function fetchCandleWithFallback(
   from: number,
   to: number,
 ): Promise<RawCandle | null> {
-  // 1. Try Yahoo Finance (no API key needed, supports US stocks freely)
-  try {
-    const yahoo = await getYahooCandle(sym, timeWindow);
-    if (yahoo && yahoo.s === 'ok' && yahoo.c.length > 0) {
-      return { c: yahoo.c, h: yahoo.h, l: yahoo.l, o: yahoo.o, t: yahoo.t, v: yahoo.v };
-    }
-  } catch (err) {
-    console.warn(`[Benchmark] Yahoo Finance failed for ${sym}:`, err);
-  }
-
-  // 2. Fallback to Finnhub (may 403 for US stocks on free tier)
+  // 1. Try Finnhub (configured API key — supports US ETFs on free tier)
   if (isFinnhubConfigured()) {
     try {
       const finnhub = await getStockCandle(sym, 'D', from, to);
@@ -56,8 +103,22 @@ async function fetchCandleWithFallback(
         return { c: finnhub.c, h: finnhub.h, l: finnhub.l, o: finnhub.o, t: finnhub.t, v: finnhub.v };
       }
     } catch (err) {
-      console.warn(`[Benchmark] Finnhub fallback failed for ${sym}:`, err);
+      console.warn(`[Benchmark] Finnhub failed for ${sym}:`, err);
     }
+  }
+
+  // 2. Try Alpha Vantage (free tier, 25 req/day, cached 4 hrs)
+  const av = await getAlphaVantageCandle(sym);
+  if (av && av.c.length > 0) return av;
+
+  // 3. Fallback to Yahoo Finance (no API key needed)
+  try {
+    const yahoo = await getYahooCandle(sym, timeWindow);
+    if (yahoo && yahoo.s === 'ok' && yahoo.c.length > 0) {
+      return { c: yahoo.c, h: yahoo.h, l: yahoo.l, o: yahoo.o, t: yahoo.t, v: yahoo.v };
+    }
+  } catch (err) {
+    console.warn(`[Benchmark] Yahoo Finance failed for ${sym}:`, err);
   }
 
   return null;
@@ -152,7 +213,18 @@ export function useMultiBenchmarkData(
     const since = new Date();
     since.setDate(since.getDate() - days);
     const sinceISO = since.toISOString();
-    const filtered = valueHistory.filter((v) => v.timestamp >= sinceISO);
+    const raw = valueHistory.filter((v) => v.timestamp >= sinceISO);
+
+    // Deduplicate to one snapshot per calendar day (keep the last entry per day)
+    // This prevents intraday multi-snapshot inflation of % returns
+    const dailyMap = new Map<string, number>();
+    for (const { timestamp, valueBase } of raw) {
+      dailyMap.set(timestamp.slice(0, 10), valueBase);
+    }
+    const filtered = Array.from(dailyMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, valueBase]) => ({ timestamp: day + 'T00:00:00.000Z', valueBase }));
+
     if (filtered.length < 2) {
       return { portfolioReturns: null, benchmarks: [], labels: null };
     }
