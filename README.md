@@ -1,6 +1,20 @@
 # Stax
 
-Stax is a mobile portfolio tracker that unifies stocks, crypto, metals, real estate, and fixed income in one view, with price updates, reminders, and premium diversification insights.
+**One place for your whole net worth.** Stax is a mobile portfolio tracker that unifies stocks, crypto, metals, real estate, and fixed income in a single view—so you can see allocation, performance, and diversification without juggling brokers and spreadsheets.
+
+## Why Stax?
+
+Net worth is scattered: brokerage accounts, DeFi wallets, property, gold, bonds. Stax was built to bring it all together: track holdings, get price updates, set reminders, and understand how your portfolio is actually allocated and performing. No more mental math across five apps.
+
+## Features
+
+- **Unified portfolio** — Stocks, ETFs, crypto, metals, real estate, and fixed income in one place with a single base currency (e.g. USD).
+- **Live & cached prices** — Alpha Vantage for equities (optional); CoinGecko for crypto and gold; Supabase-backed price cache to reduce API usage.
+- **Charts & fundamentals** — Candlestick charts, earnings calendar, analyst sentiment, price targets, and portfolio vs benchmark comparison.
+- **Analysis & insights** — Stax Score, allocation donut, concentration bars, TWRR/Sharpe, benchmark comparison, dividend analytics (Pro).
+- **Alerts & events** — Reminders for dividends, options expiry, and custom events; timeline of past and upcoming events.
+- **Import & export** — CSV import for holdings; CSV/PDF export; optional cloud backup (Supabase).
+- **Hackathon-friendly** — Run in **guest mode** with no sign-up and no API keys. Add Supabase only if you want auth; add Alpha Vantage only if you want live stock prices.
 
 ## Quick start
 
