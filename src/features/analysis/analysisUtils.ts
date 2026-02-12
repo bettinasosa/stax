@@ -262,7 +262,7 @@ export function computePerformance(
       }
     }
 
-    // Unrealized P&L
+    // Unrealized P&L (costBasis is per-unit, multiply by quantity for total)
     if (
       holding.costBasis != null &&
       holding.costBasis > 0 &&
@@ -270,7 +270,7 @@ export function computePerformance(
       holding.quantity > 0
     ) {
       const cbRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency, fxRates);
-      const costInBase = holding.costBasis * cbRate;
+      const costInBase = holding.costBasis * holding.quantity * cbRate;
       totalCostBasis += costInBase;
       coveredValue += valueBase;
       const pnl = valueBase - costInBase;

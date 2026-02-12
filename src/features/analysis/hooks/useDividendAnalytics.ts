@@ -53,9 +53,14 @@ export function useDividendAnalytics(
         .filter((t) => t.type === 'dividend' && t.holdingId === holdingId && t.date >= twelveMonthsAgo.toISOString())
         .reduce((s, t) => s + t.totalAmount, 0);
 
-      const yieldOnCost =
+      // costBasis is per-unit: multiply by quantity for total cost basis
+      const totalCostBasis =
         holding.costBasis != null && holding.costBasis > 0
-          ? (holdingTtm / holding.costBasis) * 100
+          ? holding.costBasis * (holding.quantity ?? 1)
+          : null;
+      const yieldOnCost =
+        totalCostBasis != null && totalCostBasis > 0
+          ? (holdingTtm / totalCostBasis) * 100
           : null;
 
       holdingRows.push({

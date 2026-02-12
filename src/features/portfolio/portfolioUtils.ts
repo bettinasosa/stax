@@ -381,8 +381,11 @@ export interface InceptionReturn {
 }
 
 /**
- * Compute per-holding since-inception return using costBasis.
+ * Compute per-holding since-inception return using costBasis (per-unit purchase price).
  * Returns null when the holding has no cost basis set.
+ *
+ * costBasis on the holding is stored as per-unit cost (price at acquisition).
+ * We multiply by quantity to get total cost, then compare to current total value.
  */
 export function holdingInceptionReturn(
   holding: Holding,
@@ -392,7 +395,8 @@ export function holdingInceptionReturn(
 ): InceptionReturn | null {
   if (holding.costBasis == null || holding.costBasis <= 0) return null;
   const cbRate = getRateToBase(holding.costBasisCurrency ?? holding.currency, baseCurrency, fxRates);
-  const costBasis = holding.costBasis * cbRate;
+  const qty = holding.quantity ?? 1;
+  const costBasis = holding.costBasis * qty * cbRate;
   const currentValue = holdingValueInBase(holding, priceResult, baseCurrency, fxRates);
   const gainLoss = currentValue - costBasis;
   const returnPct = (gainLoss / costBasis) * 100;

@@ -8,6 +8,7 @@ import {
 import type { Portfolio, Holding, Transaction, Liability } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { refreshPrices } from '../../services/pricing';
+import { syncTrackedSymbols } from '../../services/supabasePriceCache';
 import type { AssetTypeListed } from '../../utils/constants';
 import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
 import { portfolioTotalBase } from './portfolioUtils';
@@ -116,6 +117,19 @@ export function usePortfolio() {
       // Fetch live FX rates (non-blocking — falls back to stubs if unavailable)
       const rates = (await fetchFxRates()) ?? undefined;
       setFxRates(rates);
+
+      // Sync tracked symbols to Supabase so the Edge Function knows what to refresh
+      if (listed.length > 0) {
+        syncTrackedSymbols(
+          listed.map((x) => ({
+            symbol: x.symbol,
+            type: x.type,
+            metadata: (x.metadata as Record<string, string>) ?? undefined,
+          }))
+        ).catch(() => {
+          // Non-blocking: if Supabase sync fails, prices still work via direct API
+        });
+      }
 
       let snapshotMap = cachedResult;
       if (listed.length > 0) {

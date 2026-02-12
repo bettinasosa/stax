@@ -29,7 +29,10 @@ function buildReportHtml(data: ReportData): string {
   // Holdings table rows
   const holdingRows = withValues.map((h) => {
     const qty = h.holding.quantity != null ? h.holding.quantity.toFixed(4) : '-';
-    const costBasis = h.holding.costBasis != null ? formatMoney(h.holding.costBasis, h.holding.costBasisCurrency ?? h.holding.currency) : '-';
+    const totalCost = h.holding.costBasis != null && h.holding.quantity != null
+      ? h.holding.costBasis * h.holding.quantity
+      : h.holding.costBasis;
+    const costBasis = totalCost != null ? formatMoney(totalCost, h.holding.costBasisCurrency ?? h.holding.currency) : '-';
     return `<tr>
       <td>${escapeHtml(h.holding.name)}</td>
       <td>${h.holding.type.replace(/_/g, ' ')}</td>

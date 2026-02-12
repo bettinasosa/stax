@@ -17,6 +17,8 @@ export interface WalletHolding {
   name: string;
   quantity: number;
   contractAddress?: string;
+  /** USD price per unit as reported by Ethplorer (may be null for obscure tokens). */
+  priceUsd?: number;
 }
 
 interface EthplorerTokenInfo {
@@ -24,6 +26,7 @@ interface EthplorerTokenInfo {
   name?: string;
   decimals?: string;
   address?: string;
+  price?: { rate?: number; currency?: string } | false;
 }
 
 interface EthplorerTokenBalance {
@@ -81,8 +84,9 @@ export async function fetchWalletHoldings(address: string): Promise<WalletHoldin
   const ethBalance = data.ETH?.balance ?? data.ETH?.rawBalance;
   if (ethBalance != null) {
     const q = typeof ethBalance === 'string' ? parseRawBalance(ethBalance, 18) : ethBalance;
+    const ethPrice = typeof data.ETH?.price?.rate === 'number' ? data.ETH.price.rate : undefined;
     if (q >= MIN_QUANTITY) {
-      holdings.push({ id: 'eth-native', symbol: 'ETH', name: 'Ethereum', quantity: q });
+      holdings.push({ id: 'eth-native', symbol: 'ETH', name: 'Ethereum', quantity: q, priceUsd: ethPrice });
     }
   }
 
@@ -99,7 +103,11 @@ export async function fetchWalletHoldings(address: string): Promise<WalletHoldin
     const quantity = parseRawBalance(raw, decimals);
     if (quantity < MIN_QUANTITY) continue;
     const id = contractAddress ?? `${symbol.toLowerCase()}-${holdings.length}`;
-    holdings.push({ id, symbol, name, quantity, contractAddress });
+    // Ethplorer provides a USD price for most tokens
+    const priceUsd = info.price && typeof info.price === 'object' && typeof info.price.rate === 'number'
+      ? info.price.rate
+      : undefined;
+    holdings.push({ id, symbol, name, quantity, contractAddress, priceUsd });
   }
 
   return holdings;

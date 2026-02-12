@@ -91,8 +91,12 @@ export function RecordSellScreen() {
         note: note || undefined,
       });
 
-      const newQty = (holding.quantity ?? 0) - qty;
-      const newCostBasis = Math.max(0, (holding.costBasis ?? 0) - fifo.totalCostConsumed);
+      const oldQty = holding.quantity ?? 0;
+      const newQty = oldQty - qty;
+      // costBasis is per-unit: recompute after selling via FIFO
+      const oldTotalCost = (holding.costBasis ?? 0) * oldQty;
+      const remainingTotalCost = Math.max(0, oldTotalCost - fifo.totalCostConsumed);
+      const newCostBasis = newQty > 0 ? remainingTotalCost / newQty : 0;
       await holdingRepo.update(db, holdingId, {
         quantity: newQty,
         costBasis: newCostBasis,

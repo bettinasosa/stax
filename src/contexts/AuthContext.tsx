@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from '../services/supabase';
+import { supabase, isSupabaseAuthEnabled } from '../services/supabase';
 import type { Session, User } from '@supabase/supabase-js';
 import { trackOnboardingCompleted } from '../services/analytics';
 
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!supabase) {
+    if (!supabase || !isSupabaseAuthEnabled()) {
       setLoading(false);
       setUser(null);
       setSession(null);
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (supabase) await supabase.auth.signOut();
   }, []);
 
-  const isAuthenticated = !isSupabaseConfigured() || Boolean(session?.user);
+  const isAuthenticated = !isSupabaseAuthEnabled() || Boolean(session?.user);
 
   const value: AuthContextValue = {
     user,

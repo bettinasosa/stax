@@ -14,12 +14,13 @@
 const FREE_BASE = 'https://api.coingecko.com/api/v3';
 const PRO_BASE = 'https://pro-api.coingecko.com/api/v3';
 
-interface CoinListItem {
+export interface CoinListItem {
   id: string;
   symbol: string;
   name: string;
 }
 
+let fullCoinList: CoinListItem[] | null = null;
 let symbolToIdCache: Map<string, string> | null = null;
 let listFetchPromise: Promise<Map<string, string>> | null = null;
 
@@ -57,21 +58,28 @@ export async function getSymbolToIdMap(): Promise<Map<string, string>> {
   if (listFetchPromise != null) return listFetchPromise;
 
   listFetchPromise = (async () => {
-    const { baseUrl, apiKey, headerName } = getCoinGeckoConfig();
-    const url = `${baseUrl}/coins/list`;
-    const headers: Record<string, string> = {};
-    if (apiKey) headers[headerName] = apiKey;
+    try {
+      const { baseUrl, apiKey, headerName } = getCoinGeckoConfig();
+      const url = `${baseUrl}/coins/list`;
+      const headers: Record<string, string> = {};
+      if (apiKey) headers[headerName] = apiKey;
 
-    const res = await fetch(url, { headers });
-    if (!res.ok) throw new Error(`CoinGecko list: ${res.status}`);
-    const list = (await res.json()) as CoinListItem[];
-    const map = new Map<string, string>();
-    for (const coin of list) {
-      const sym = coin.symbol?.toLowerCase();
-      if (sym && !map.has(sym)) map.set(sym, coin.id);
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`CoinGecko list: ${res.status}`);
+      const list = (await res.json()) as CoinListItem[];
+      fullCoinList = list;
+      const map = new Map<string, string>();
+      for (const coin of list) {
+        const sym = coin.symbol?.toLowerCase();
+        if (sym && !map.has(sym)) map.set(sym, coin.id);
+      }
+      symbolToIdCache = map;
+      return map;
+    } catch (err) {
+      // Reset so the next call retries instead of returning the rejected promise forever
+      listFetchPromise = null;
+      throw err;
     }
-    symbolToIdCache = map;
-    return map;
   })();
 
   return listFetchPromise;
@@ -135,4 +143,76 @@ export function nearestPriceAtOrBefore(
     best = p;
   }
   return best?.priceUsd ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Crypto search (for AddAssetScreen)
+// ---------------------------------------------------------------------------
+
+export interface CryptoSearchResult {
+  /** CoinGecko coin id (e.g. "bitcoin", "ethereum"). */
+  id: string;
+  /** Ticker symbol (e.g. "BTC", "ETH"). */
+  symbol: string;
+  /** Human-readable name (e.g. "Bitcoin", "Ethereum"). */
+  name: string;
+}
+
+const CRYPTO_SEARCH_LIMIT = 10;
+
+/**
+ * Search CoinGecko coins by symbol or name.
+ * Uses the cached full coins list (fetched once per session).
+ * Prioritizes exact symbol matches, then prefix matches, then substring matches.
+ */
+export async function searchCryptoCoins(query: string): Promise<CryptoSearchResult[]> {
+  const q = query.trim().toLowerCase();
+  if (!q || q.length < 1) return [];
+
+  // Ensure the full list is loaded
+  await getSymbolToIdMap();
+  if (!fullCoinList || fullCoinList.length === 0) return [];
+
+  const exactSymbol: CryptoSearchResult[] = [];
+  const prefixSymbol: CryptoSearchResult[] = [];
+  const prefixName: CryptoSearchResult[] = [];
+  const substringName: CryptoSearchResult[] = [];
+  const seen = new Set<string>();
+
+  for (const coin of fullCoinList) {
+    const sym = coin.symbol?.toLowerCase() ?? '';
+    const name = coin.name?.toLowerCase() ?? '';
+    const id = coin.id;
+    if (!sym || !id) continue;
+
+    if (sym === q) {
+      if (!seen.has(id)) {
+        exactSymbol.push({ id, symbol: coin.symbol.toUpperCase(), name: coin.name });
+        seen.add(id);
+      }
+    } else if (sym.startsWith(q)) {
+      if (!seen.has(id)) {
+        prefixSymbol.push({ id, symbol: coin.symbol.toUpperCase(), name: coin.name });
+        seen.add(id);
+      }
+    } else if (name.startsWith(q)) {
+      if (!seen.has(id)) {
+        prefixName.push({ id, symbol: coin.symbol.toUpperCase(), name: coin.name });
+        seen.add(id);
+      }
+    } else if (name.includes(q) || sym.includes(q)) {
+      if (!seen.has(id)) {
+        substringName.push({ id, symbol: coin.symbol.toUpperCase(), name: coin.name });
+        seen.add(id);
+      }
+    }
+
+    // Early exit once we have plenty of candidates
+    if (seen.size >= CRYPTO_SEARCH_LIMIT * 4) break;
+  }
+
+  return [...exactSymbol, ...prefixSymbol, ...prefixName, ...substringName].slice(
+    0,
+    CRYPTO_SEARCH_LIMIT
+  );
 }

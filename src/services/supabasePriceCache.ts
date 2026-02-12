@@ -5,10 +5,9 @@
  * - The Edge Function `refresh-prices` updates `price_cache` on a schedule.
  * - Clients read from `price_cache` first (fast, no rate limit concern).
  * - If Supabase is not configured or data is stale, clients fall back to direct API calls.
+ * - After fetching from APIs, clients write prices back to `price_cache` via the
+ *   `upsert_price` Postgres function (SECURITY DEFINER — bypasses RLS).
  * - Pro users can trigger on-demand refreshes via the Edge Function.
- *
- * This module is a pure read layer — it never writes to Supabase directly.
- * All writes happen through the Edge Function (service role).
  */
 
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -158,11 +157,11 @@ export async function syncTrackedSymbols(
       ref_count: 1,
     }));
 
-    // Upsert into tracked_symbols (increment ref_count would be ideal,
-    // but for MVP we just ensure the symbol exists)
+    // Upsert into tracked_symbols — always update metadata so new
+    // providerId / contractAddress values propagate to the Edge Function.
     await supabase.from('tracked_symbols').upsert(rows, {
       onConflict: 'symbol',
-      ignoreDuplicates: true,
+      ignoreDuplicates: false,
     });
   } catch (err) {
     console.warn('[SupabaseCache] Failed to sync tracked symbols:', err);
@@ -195,6 +194,68 @@ export async function triggerPriceRefresh(symbols?: string[]): Promise<{
   } catch (err) {
     console.warn('[SupabaseCache] Failed to trigger refresh:', err);
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Write API — uses `upsert_price` SECURITY DEFINER function to bypass RLS
+// ---------------------------------------------------------------------------
+
+export interface PriceCacheWrite {
+  symbol: string;
+  price: number;
+  currency: string;
+  previousClose?: number | null;
+  changePercent?: number | null;
+  assetType: string;
+  source: string;
+}
+
+/**
+ * Write a single price to the Supabase `price_cache` table.
+ * Uses the `upsert_price` Postgres function (SECURITY DEFINER) so it
+ * works from the anon role without needing service_role credentials.
+ */
+export async function writeCachedPrice(entry: PriceCacheWrite): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+  try {
+    await supabase.rpc('upsert_price', {
+      p_symbol: entry.symbol.toUpperCase(),
+      p_price: entry.price,
+      p_currency: entry.currency,
+      p_previous_close: entry.previousClose ?? null,
+      p_change_percent: entry.changePercent ?? null,
+      p_asset_type: entry.assetType,
+      p_source: entry.source,
+    });
+  } catch {
+    // Non-critical: Supabase write failure doesn't block the user
+  }
+}
+
+/**
+ * Batch-write multiple prices to the Supabase `price_cache` table.
+ * Fires all RPCs in parallel for speed. Failures are silently ignored
+ * (prices are still stored locally in SQLite as a fallback).
+ */
+export async function writeCachedPrices(entries: PriceCacheWrite[]): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase || entries.length === 0) return;
+  try {
+    await Promise.allSettled(
+      entries.map((entry) =>
+        supabase!.rpc('upsert_price', {
+          p_symbol: entry.symbol.toUpperCase(),
+          p_price: entry.price,
+          p_currency: entry.currency,
+          p_previous_close: entry.previousClose ?? null,
+          p_change_percent: entry.changePercent ?? null,
+          p_asset_type: entry.assetType,
+          p_source: entry.source,
+        })
+      )
+    );
+  } catch {
+    // Non-critical
   }
 }
 
