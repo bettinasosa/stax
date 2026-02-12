@@ -68,7 +68,7 @@ export function DividendAnalyticsCard({ analytics, baseCurrency }: Props) {
               color: (): string => theme.colors.positive,
               labelColor: (): string => theme.colors.textSecondary,
               barPercentage: 0.5,
-              propsForLabels: { fontSize: 10 },
+              propsForLabels: { fontSize: 12 },
             }}
             withInnerLines={false}
             fromZero

@@ -131,7 +131,7 @@ export function PortfolioComparisonScreen() {
               linejoinType: 'round',
               labelColor: (): string => theme.colors.textSecondary,
               propsForDots: { r: 0 },
-              propsForLabels: { fontSize: 10 },
+              propsForLabels: { fontSize: 12 },
             }}
             withShadow={false}
             withInnerLines={false}

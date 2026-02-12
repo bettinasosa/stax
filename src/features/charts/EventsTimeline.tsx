@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   earningsBadgeText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '600' as const,
     color: '#7C3AED',
     letterSpacing: 0.5,

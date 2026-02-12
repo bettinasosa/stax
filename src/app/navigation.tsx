@@ -119,7 +119,7 @@ export function AppNavigation() {
         },
         tabBarActiveTintColor: theme.colors.textPrimary,
         tabBarInactiveTintColor: theme.colors.textTertiary,
-        tabBarLabelStyle: { fontSize: 12 },
+        tabBarLabelStyle: { fontSize: 14 },
       }}
     >
       <Tab.Screen

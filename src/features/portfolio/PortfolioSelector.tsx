@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   triggerChevron: {
-    fontSize: 10,
+    fontSize: 12,
     color: theme.colors.textSecondary,
   },
   modalBackdrop: {

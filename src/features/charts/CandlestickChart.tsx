@@ -128,7 +128,7 @@ export function CandlestickChart({ candles, width, height }: Props) {
             key={i}
             x={lbl.x}
             y={height - 4}
-            fontSize={9}
+            fontSize={11}
             fill={theme.colors.textTertiary}
             textAnchor="middle"
           >

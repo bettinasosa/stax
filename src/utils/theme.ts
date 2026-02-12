@@ -58,42 +58,42 @@ export const theme = {
   typography: {
     title: {
       fontFamily: fontFamilies.heading,
-      fontSize: 28,
+      fontSize: 30,
       fontWeight: '700' as const,
     },
     title2: {
       fontFamily: fontFamilies.headingSemi,
-      fontSize: 22,
+      fontSize: 24,
       fontWeight: '600' as const,
     },
     body: {
       fontFamily: fontFamilies.body,
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: '400' as const,
     },
     bodyMedium: {
       fontFamily: fontFamilies.bodyMedium,
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: '500' as const,
     },
     bodySemi: {
       fontFamily: fontFamilies.bodySemi,
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: '600' as const,
     },
     caption: {
       fontFamily: fontFamilies.body,
-      fontSize: 14,
+      fontSize: 16,
       fontWeight: '400' as const,
     },
     captionMedium: {
       fontFamily: fontFamilies.bodyMedium,
-      fontSize: 14,
+      fontSize: 16,
       fontWeight: '500' as const,
     },
     small: {
       fontFamily: fontFamilies.body,
-      fontSize: 12,
+      fontSize: 14,
       fontWeight: '400' as const,
     },
   },

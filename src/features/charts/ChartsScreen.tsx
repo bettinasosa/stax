@@ -346,7 +346,7 @@ export function ChartsScreen() {
                 linejoinType: 'round',
                 labelColor: (): string => theme.colors.textSecondary,
                 propsForDots: { r: 0 },
-                propsForLabels: { fontSize: 10 },
+                propsForLabels: { fontSize: 12 },
               }}
               withShadow={false}
               withInnerLines={false}
@@ -606,7 +606,7 @@ const styles = StyleSheet.create({
   },
   proBadge: {
     ...theme.typography.small,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
     color: theme.colors.textTertiary,
     marginLeft: 4,

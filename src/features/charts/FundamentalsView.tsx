@@ -203,7 +203,7 @@ export function FundamentalsView({ holdings }: Props) {
                     decimalPlaces: 2,
                     color: () => theme.colors.white,
                     labelColor: () => theme.colors.textSecondary,
-                    propsForLabels: { fontSize: 9 },
+                    propsForLabels: { fontSize: 11 },
                     barPercentage: 0.6,
                   }}
                   fromZero
