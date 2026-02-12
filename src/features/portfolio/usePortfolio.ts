@@ -1,11 +1,11 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
-import { portfolioRepo, holdingRepo, pricePointRepo, portfolioValueSnapshotRepo, transactionRepo } from '../../data';
+import { portfolioRepo, holdingRepo, pricePointRepo, portfolioValueSnapshotRepo, transactionRepo, liabilityRepo } from '../../data';
 import {
   getActivePortfolioId,
   setActivePortfolioId as persistActivePortfolioId,
 } from '../../data/activePortfolioStorage';
-import type { Portfolio, Holding, Transaction } from '../../data/schemas';
+import type { Portfolio, Holding, Transaction, Liability } from '../../data/schemas';
 import type { PriceResult } from '../../services/pricing';
 import { refreshPrices } from '../../services/pricing';
 import type { AssetTypeListed } from '../../utils/constants';
@@ -70,6 +70,7 @@ export function usePortfolio() {
   const [error, setError] = useState<string | null>(null);
   const [fxRates, setFxRates] = useState<Record<string, number> | undefined>(undefined);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [liabilities, setLiabilities] = useState<Liability[]>([]);
   const [valueHistory, setValueHistory] = useState<
     { timestamp: string; valueBase: number; baseCurrency: string }[]
   >([]);
@@ -88,12 +89,14 @@ export function usePortfolio() {
         return;
       }
       setPortfolio(p);
-      const [h, txns] = await Promise.all([
+      const [h, txns, liabs] = await Promise.all([
         holdingRepo.getByPortfolioId(dbRef.current, p.id),
         transactionRepo.getByPortfolioId(dbRef.current, p.id),
+        liabilityRepo.getByPortfolioId(dbRef.current, p.id),
       ]);
       setHoldings(h);
       setTransactions(txns);
+      setLiabilities(liabs);
 
       const listed = h.filter(
         (x): x is Holding & { symbol: string; type: AssetTypeListed } =>
@@ -256,5 +259,6 @@ export function usePortfolio() {
     transactions,
     valueHistory,
     fxRates,
+    liabilities,
   };
 }

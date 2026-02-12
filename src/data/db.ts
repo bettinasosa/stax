@@ -94,6 +94,21 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_transaction_holding ON "transaction"(holding_id);
   `,
+  `
+  CREATE TABLE IF NOT EXISTS liability (
+    id TEXT PRIMARY KEY NOT NULL,
+    portfolio_id TEXT NOT NULL REFERENCES portfolio(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('mortgage','loan','credit_card','other')),
+    balance REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    interest_rate REAL,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_liability_portfolio ON liability(portfolio_id);
+  `,
 ];
 
 /** Valid UUID v4 format so Zod .uuid() accepts it. */
@@ -108,6 +123,7 @@ export async function clearAllData(db: SQLiteDatabase): Promise<void> {
   await db.runAsync('DELETE FROM event');
   await db.runAsync('DELETE FROM "transaction"');
   await db.runAsync('DELETE FROM lot');
+  await db.runAsync('DELETE FROM liability');
   await db.runAsync('DELETE FROM holding');
   await db.runAsync('DELETE FROM price_point');
   await db.runAsync('DELETE FROM portfolio_value_snapshot');

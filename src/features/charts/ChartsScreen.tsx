@@ -30,10 +30,10 @@ type ChartStyle = 'line' | 'candle';
 
 const TABS: { key: ChartView; label: string }[] = [
   { key: 'fundamentals', label: 'Fundamentals' },
-  { key: 'portfolio', label: 'Portfolio' },
-  { key: 'allocation', label: 'Allocation' },
   { key: 'sentiment', label: 'Sentiment' },
   { key: 'events', label: 'Events' },
+  { key: 'portfolio', label: 'Portfolio' },
+  { key: 'allocation', label: 'Allocation' },
 ];
 
 const TIME_WINDOW_DAYS: Record<TimeWindow, number | null> = {
@@ -52,12 +52,11 @@ const BENCHMARK_OPTIONS = [
 
 export function ChartsScreen() {
   const navigation = useNavigation();
-  const { portfolio, holdings, pricesBySymbol, loading, refresh, valueHistory, fxRates } = usePortfolio();
+  const { portfolio, holdings, pricesBySymbol, loading, refresh, valueHistory, fxRates, portfolios } = usePortfolio();
   const { isPro } = useEntitlements();
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('1M');
   const [chartView, setChartView] = useState<ChartView>('fundamentals');
   const [selectedBenchmarks, setSelectedBenchmarks] = useState<string[]>([]);
-  const [showPaywall, setShowPaywall] = useState(false);
   const [chartStyle, setChartStyle] = useState<ChartStyle>('line');
   /** Which benchmark symbol to show as candlestick (defaults to first selected). */
   const [candleSymbol, setCandleSymbol] = useState<string>('SPY');
@@ -81,6 +80,14 @@ export function ChartsScreen() {
   }, [selectedBenchmarks, chartStyle, candleSymbol]);
 
   const benchmark = useMultiBenchmarkData(timeWindow, candleFetchSymbols, valueHistory, benchmarkConfig);
+
+  const handleTabPress = (key: ChartView) => {
+    if (key === 'sentiment' && !isPro) {
+      (navigation as any).navigate('Paywall', { trigger: 'Market Pulse requires Stax Pro' });
+      return;
+    }
+    setChartView(key);
+  };
 
   const toggleBenchmark = (symbol: string) => {
     const opt = BENCHMARK_OPTIONS.find((b) => b.symbol === symbol);
@@ -215,15 +222,34 @@ export function ChartsScreen() {
             <TouchableOpacity
               key={tab.key}
               style={[styles.tab, chartView === tab.key && styles.tabActive]}
-              onPress={() => setChartView(tab.key)}
+              onPress={() => handleTabPress(tab.key)}
             >
               <Text style={[styles.tabText, chartView === tab.key && styles.tabTextActive]}>
                 {tab.label}
+                {tab.key === 'sentiment' && !isPro ? ' (Pro)' : ''}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
       </ScrollView>
+
+      {/* Compare Portfolios (Pro, 2+ portfolios) */}
+      {portfolios.length >= 2 && (
+        <TouchableOpacity
+          style={styles.compareButton}
+          onPress={() => {
+            if (!isPro) {
+              (navigation as any).navigate('Paywall', { trigger: 'Portfolio comparison requires Stax Pro' });
+              return;
+            }
+            (navigation as any).navigate('PortfolioComparison');
+          }}
+        >
+          <Text style={styles.compareButtonText}>
+            Compare Portfolios{!isPro ? ' (Pro)' : ''}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Portfolio Value Chart */}
       {chartView === 'portfolio' && (
@@ -723,4 +749,17 @@ const styles = StyleSheet.create({
     color: theme.colors.textTertiary,
   },
 
+  // Compare button
+  compareButton: {
+    marginBottom: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+  },
+  compareButtonText: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+  },
 });

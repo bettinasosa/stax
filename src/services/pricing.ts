@@ -6,6 +6,7 @@ import { normalizeSymbol } from '../utils/constants';
 import { getCoinGeckoConfig, getCoinGeckoId } from './coingecko';
 import { getCoinMarketCapPrice, isCoinMarketCapConfigured } from './coinmarketcap';
 import { getQuote as getFinnhubQuote, isFinnhubConfigured } from './finnhub';
+import { getCachedPrice, getCachedPrices } from './supabasePriceCache';
 
 const PRICE_SOURCE = 'stax_mvp';
 const ALPHA_VANTAGE_BASE = 'https://www.alphavantage.co/query';
@@ -26,9 +27,12 @@ export interface PriceMetadata {
 }
 
 /**
- * Fetch latest price for a listed asset from external APIs.
- * Uses Alpha Vantage for stocks/ETFs/commodities (requires API key), CoinGecko for crypto (no key; optional CMC fallback).
- * Metal: single symbol supported via fallback.
+ * Fetch latest price for a listed asset.
+ * Priority: Supabase server cache → direct API calls.
+ *
+ * When Supabase is configured, the server-side Edge Function keeps prices fresh
+ * on a schedule. Clients read from the cache first, only hitting external APIs
+ * as a fallback (e.g. new symbol not yet tracked, or Supabase not set up).
  */
 export async function fetchLatestPrice(
   symbol: string,
@@ -36,6 +40,21 @@ export async function fetchLatestPrice(
   metadata?: PriceMetadata
 ): Promise<PriceResult | null> {
   const normalizedSymbol = normalizeSymbol(symbol);
+
+  // 1. Try Supabase server cache first (fast, no rate-limit concern)
+  const cached = await getCachedPrice(normalizedSymbol);
+  if (cached) {
+    console.log(`[Pricing] ${normalizedSymbol}: from Supabase cache (${cached.source}, age=${timeSince(cached.updatedAt)})`);
+    return {
+      price: cached.price,
+      currency: cached.currency,
+      symbol: normalizedSymbol,
+      previousClose: cached.previousClose ?? undefined,
+      changePercent: cached.changePercent ?? undefined,
+    };
+  }
+
+  // 2. Fallback to direct API calls
   if (type === 'crypto') {
     return fetchCryptoPrice(normalizedSymbol, metadata);
   }
@@ -46,6 +65,15 @@ export async function fetchLatestPrice(
     return fetchStockOrEtfPrice(normalizedSymbol);
   }
   return fetchStockOrEtfPrice(normalizedSymbol);
+}
+
+/** Human-readable time since a given ISO timestamp. */
+function timeSince(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime();
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h ago`;
 }
 
 async function fetchStockOrEtfPrice(symbol: string): Promise<PriceResult | null> {
@@ -284,7 +312,10 @@ function mockPrice(symbol: string, currency: string, price: number): PriceResult
 
 /**
  * Refresh and cache prices for the given symbols (by type).
- * Fetches from provider and upserts into PricePoint table.
+ *
+ * Attempts to batch-read from Supabase cache first (single round-trip for all
+ * symbols). Only fetches from external APIs for symbols not found in the cache.
+ * All results are upserted into the local SQLite PricePoint table.
  */
 export async function refreshPrices(
   db: SQLiteDatabase,
@@ -292,8 +323,31 @@ export async function refreshPrices(
 ): Promise<void> {
   const points: PricePoint[] = [];
   const now = new Date().toISOString();
+
+  // 1. Batch-read from Supabase cache
+  const allSymbols = items.map((i) => normalizeSymbol(i.symbol));
+  const supabasePrices = await getCachedPrices(allSymbols);
+
+  // 2. For each item: use Supabase cache if available, else fetch from API
   for (const { symbol, type, metadata } of items) {
     const normalizedSymbol = normalizeSymbol(symbol);
+
+    // Check Supabase cache first
+    const cached = supabasePrices.get(normalizedSymbol);
+    if (cached) {
+      points.push({
+        symbol: normalizedSymbol,
+        timestamp: now,
+        price: cached.price,
+        currency: cached.currency,
+        source: `supabase_${cached.source}`,
+        ...(cached.previousClose != null && { previousClose: cached.previousClose }),
+        ...(cached.changePercent != null && { changePercent: cached.changePercent }),
+      });
+      continue;
+    }
+
+    // Fallback to direct API call
     const result = await fetchLatestPrice(normalizedSymbol, type, metadata);
     if (
       result &&
@@ -312,6 +366,7 @@ export async function refreshPrices(
       });
     }
   }
+
   if (points.length > 0) {
     await pricePointRepo.upsertMany(db, points);
   }

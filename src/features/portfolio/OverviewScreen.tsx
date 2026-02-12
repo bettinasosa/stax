@@ -28,10 +28,10 @@ import {
 } from './portfolioUtils';
 import { PortfolioStatsCard } from './PortfolioStatsCard';
 import { useEntitlements } from '../analysis/useEntitlements';
-import { PaywallScreen } from '../analysis/PaywallScreen';
 import { exportPortfolioPDF } from '../../services/pdfReport';
-import { formatMoney } from '../../utils/money';
+import { formatMoney, getRateToBase } from '../../utils/money';
 import { theme } from '../../utils/theme';
+import type { Liability } from '../../data/schemas';
 import { holdingRepo, eventRepo } from '../../data';
 import type { Event } from '../../data/schemas';
 import type { Holding } from '../../data/schemas';
@@ -72,12 +72,12 @@ export function OverviewScreen() {
     transactions,
     valueHistory,
     fxRates,
+    liabilities,
   } = usePortfolio();
   const { isPro } = useEntitlements();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
-  const [showPdfPaywall, setShowPdfPaywall] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [changeMode, setChangeMode] = useState<'day' | 'inception'>('inception');
 
@@ -116,6 +116,17 @@ export function OverviewScreen() {
     () => portfolioInceptionReturn(filteredHoldings, pricesBySymbol, baseCurrency, fxRates),
     [filteredHoldings, pricesBySymbol, baseCurrency, fxRates]
   );
+
+  // Liabilities total (FX-converted to base currency)
+  const totalLiabilities = useMemo(() => {
+    return liabilities.reduce((sum, l) => {
+      const rate = getRateToBase(l.currency, baseCurrency, fxRates);
+      return sum + l.balance * rate;
+    }, 0);
+  }, [liabilities, baseCurrency, fxRates]);
+
+  const netWorth = totalNow - totalLiabilities;
+  const hasLiabilities = liabilities.length > 0;
 
   const realizedPnL = useMemo(() => totalRealizedGainLoss(transactions), [transactions]);
   const dividendIncome = useMemo(() => totalDividendIncome(transactions), [transactions]);
@@ -309,7 +320,6 @@ export function OverviewScreen() {
   const activeChangeColor = changeMode === 'inception' ? inceptionColor : dayChangeColor;
   const activeChangeArrow = changeMode === 'inception' ? inceptionArrow : dayChangeArrow;
   const activeChangeAmount = changeMode === 'inception' ? inceptionAmount : dayChangeAmount;
-  const changeModeLabel = changeMode === 'inception' ? 'Since inception' : 'Day change';
   const formatUpcomingDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -418,6 +428,33 @@ export function OverviewScreen() {
           </View>
         )}
       </View>
+
+      {/* ── Net Worth (Pro + has liabilities) ── */}
+      {isPro && hasLiabilities && typeFilter === 'all' && (
+        <View style={styles.netWorthCard}>
+          <View style={styles.netWorthRow}>
+            <Text style={styles.netWorthLabel}>Total Assets</Text>
+            <Text style={styles.netWorthValue}>{formatMoney(totalNow, baseCurrency)}</Text>
+          </View>
+          <View style={styles.netWorthRow}>
+            <Text style={styles.netWorthLabel}>Total Liabilities</Text>
+            <Text style={[styles.netWorthValue, { color: theme.colors.negative }]}>
+              -{formatMoney(totalLiabilities, baseCurrency)}
+            </Text>
+          </View>
+          <View style={[styles.netWorthRow, styles.netWorthTotalRow]}>
+            <Text style={styles.netWorthTotalLabel}>Net Worth</Text>
+            <Text
+              style={[
+                styles.netWorthTotalValue,
+                { color: netWorth >= 0 ? theme.colors.positive : theme.colors.negative },
+              ]}
+            >
+              {formatMoney(netWorth, baseCurrency)}
+            </Text>
+          </View>
+        </View>
+      )}
 
       {totalRef >= 0 && typeFilter === 'all' && (
         <View style={styles.chartSection}>
@@ -601,6 +638,51 @@ export function OverviewScreen() {
           >
             <Text style={styles.viewAllText}>View all in Settings</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Liabilities (Pro) ── */}
+      {isPro && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Liabilities</Text>
+            <TouchableOpacity
+              onPress={() =>
+                (navigation as any).navigate('Holdings', {
+                  screen: 'AddLiability',
+                })
+              }
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.seeAllText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+          {liabilities.length === 0 ? (
+            <Text style={styles.emptyLiabilityText}>
+              No liabilities. Add mortgages, loans, or credit cards to track net worth.
+            </Text>
+          ) : (
+            liabilities.map((l) => (
+              <TouchableOpacity
+                key={l.id}
+                style={styles.topRow}
+                onPress={() =>
+                  (navigation as any).navigate('Holdings', {
+                    screen: 'LiabilityDetail',
+                    params: { liabilityId: l.id },
+                  })
+                }
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.topName} numberOfLines={1}>{l.name}</Text>
+                  <Text style={styles.liabilityType}>{l.type.replace(/_/g, ' ')}</Text>
+                </View>
+                <Text style={[styles.topValue, { color: theme.colors.negative }]}>
+                  -{formatMoney(l.balance, l.currency)}
+                </Text>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
       )}
 
@@ -856,4 +938,51 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
   },
   buttonDisabled: { opacity: 0.6 },
+
+  // Net Worth
+  netWorthCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.layout.cardRadius,
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  netWorthRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  netWorthLabel: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+  },
+  netWorthValue: {
+    ...theme.typography.captionMedium,
+    color: theme.colors.textPrimary,
+  },
+  netWorthTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    marginTop: 4,
+    paddingTop: theme.spacing.xs,
+  },
+  netWorthTotalLabel: {
+    ...theme.typography.bodySemi,
+    color: theme.colors.textPrimary,
+  },
+  netWorthTotalValue: {
+    ...theme.typography.bodySemi,
+  },
+
+  // Liabilities
+  emptyLiabilityText: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    paddingVertical: theme.spacing.xs,
+  },
+  liabilityType: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    textTransform: 'capitalize',
+  },
 });

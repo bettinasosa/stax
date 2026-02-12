@@ -4,9 +4,11 @@ import {
   ASSET_TYPE_LISTED,
   EVENT_KINDS,
   TRANSACTION_TYPES,
+  LIABILITY_TYPES,
   type AssetType,
   type EventKind,
   type TransactionType,
+  type LiabilityType,
 } from '../utils/constants';
 
 /** Portfolio entity schema (strict for production). */
@@ -219,6 +221,34 @@ export type Transaction = z.infer<typeof transactionSchema>;
 export const createTransactionSchema = transactionSchema.omit({ id: true, createdAt: true });
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
+
+/** Liability schema: a debt or obligation reducing net worth. */
+export const liabilitySchema = z
+  .object({
+    id: z.string().uuid(),
+    portfolioId: z.string().uuid(),
+    name: z.string().min(1),
+    type: z.enum(LIABILITY_TYPES as unknown as [LiabilityType, ...LiabilityType[]]),
+    balance: z.number().nonnegative(),
+    currency: z.string().length(3),
+    interestRate: z.number().nullish(),
+    note: z.string().nullish(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export type Liability = z.infer<typeof liabilitySchema>;
+
+/** Create liability DTO. */
+export const createLiabilitySchema = liabilitySchema.omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CreateLiabilityInput = z.infer<typeof createLiabilitySchema>;
+
+/** Update liability DTO (partial). */
+export const updateLiabilitySchema = liabilitySchema.partial().omit({ id: true, portfolioId: true, createdAt: true, updatedAt: true });
+
+export type UpdateLiabilityInput = z.infer<typeof updateLiabilitySchema>;
 
 /** Build assetId from chainId and contract address (null/empty for native). */
 export function buildAssetId(chainId: number, contractAddress: string | null | undefined): string {

@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.stax.app",
+      "bundleIdentifier": "com.bettinasosa.stax",
       "buildNumber": "1"
     },
     "android": {

@@ -22,6 +22,7 @@ import { trackNotificationEnabled } from '../../services/analytics';
 import { SUPPORTED_PRICE_FEEDS } from '../../services/supportedFeeds';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { isSupabaseConfigured } from '../../services/supabase';
+import { CloudBackupSection } from './CloudBackupSection';
 import { useUpcomingAlerts } from '../alerts/useUpcomingAlerts';
 import { AlertsList } from '../alerts/AlertsList';
 import { theme } from '../../utils/theme';
@@ -33,7 +34,7 @@ export function SettingsScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
   const { portfolio, activePortfolioId, refresh } = usePortfolio();
-  const { restorePurchases } = useEntitlements();
+  const { restorePurchases, isPro } = useEntitlements();
   const [baseCurrency, setBaseCurrency] = useState('USD');
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -333,6 +334,8 @@ export function SettingsScreen() {
           </View>
         )}
       </View>
+
+      {isSupabaseConfigured() && isPro && <CloudBackupSection />}
 
       {isSupabaseConfigured() && (
         <View style={styles.section}>
