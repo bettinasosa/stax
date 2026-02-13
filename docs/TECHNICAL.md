@@ -180,17 +180,17 @@ All of the above use `useEntitlements().isPro` (or the context’s `isPro`) to d
 
 ### Free vs Pro (summary)
 
-| Capability                            | Free   | Pro                            |
-| ------------------------------------- | ------ | ------------------------------ |
-| Holdings                              | 25 max | Unlimited                      |
-| Reminder schedules                    | 1      | Unlimited                      |
-| Stax Score, allocation, concentration | No     | Yes                            |
-| TWRR, Sharpe, benchmarks              | No     | Yes                            |
-| Dividend analytics                    | No     | Yes                            |
-| Compare portfolios / benchmarks       | No     | Yes                            |
-| Liabilities / net worth               | No     | Yes                            |
-| PDF report                            | No     | Yes                            |
-| Cloud backup                          | No     | Yes (when Supabase configured) |
+| Capability                            | Free   | Pro       |
+| ------------------------------------- | ------ | --------- |
+| Holdings                              | 25 max | Unlimited |
+| Reminder schedules                    | 1      | Unlimited |
+| Stax Score, allocation, concentration | No     | Yes       |
+| TWRR, Sharpe, benchmarks              | No     | Yes       |
+| Dividend analytics                    | No     | Yes       |
+| Compare portfolios / benchmarks       | No     | Yes       |
+| Liabilities / net worth               | No     | Yes       |
+| PDF report                            | No     | Yes       |
+| Cloud backup                          | No     | Yes       |
 
 ### Testing and builds
 
