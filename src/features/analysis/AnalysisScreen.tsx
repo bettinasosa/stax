@@ -172,6 +172,14 @@ export function AnalysisScreen() {
       {/* ══════════════ Score & Insights ══════════════ */}
       {activeTab === 'score' && (
         <>
+          {/* Intro: free risk/diversification snapshot */}
+          <View style={styles.section}>
+            <Text style={styles.introText}>
+              This is your diversification and risk snapshot. The score and insights below highlight
+              where you might be overexposed to a single holding, sector, or region.
+            </Text>
+          </View>
+
           {/* Stax Score */}
           <View style={styles.card}>
             <Text style={styles.scoreLabel}>Stax Score</Text>
@@ -209,6 +217,10 @@ export function AnalysisScreen() {
           {/* Concentration (compact) */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Concentration</Text>
+            <Text style={styles.sectionSubtext}>
+              Bars that cross the guideline (or turn amber/red) indicate higher concentration risk —
+              consider trimming exposure in those areas.
+            </Text>
             <ConcentrationBars
               concentration={concentration}
               largestAssetClassPercent={largestAssetClassPercent}
@@ -258,8 +270,9 @@ export function AnalysisScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Allocation Breakdown</Text>
             <Text style={styles.sectionSubtext}>
-              See how your portfolio is split across asset classes and themes. A more balanced mix
-              can reduce the impact of any single bucket on your overall returns.
+              See how your portfolio is split across asset classes, currency, country, and sector.
+              A more balanced mix lowers risk; heavy weight in one segment can hurt if that segment
+              drops.
             </Text>
             <AllocationDonut exposure={exposure} />
           </View>
@@ -294,6 +307,15 @@ export function AnalysisScreen() {
       {activeTab === 'dividends' && (
         <DividendAnalyticsCard analytics={dividendAnalytics} baseCurrency={baseCurrency} />
       )}
+
+      {/* Disclaimer: data and analysis are not advice */}
+      <View style={styles.disclaimer}>
+        <Text style={styles.disclaimerText}>
+          Data and prices may be delayed or inaccurate. This analysis is for information only and
+          is not investment, tax, or legal advice. Do not make investment decisions solely on this
+          information — do your own research or speak to a qualified adviser.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -371,6 +393,12 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
     paddingHorizontal: theme.spacing.sm,
   },
+  introText: {
+    ...theme.typography.small,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.sm,
+    lineHeight: 20,
+  },
   section: { marginBottom: theme.spacing.md },
   sectionTitle: {
     ...theme.typography.bodySemi,
@@ -439,5 +467,20 @@ const styles = StyleSheet.create({
   proPreviewCtaText: {
     ...theme.typography.captionMedium,
     color: theme.colors.background,
+  },
+
+  // Disclaimer
+  disclaimer: {
+    marginTop: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  disclaimerText: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
   },
 });

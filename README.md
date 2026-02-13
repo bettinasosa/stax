@@ -8,7 +8,7 @@ Net worth is scattered: brokerage accounts, DeFi wallets, property, gold, bonds.
 
 ## Features
 
-- **Unified portfolio** — Stocks, ETFs, crypto, metals, real estate, and fixed income in one place with a single base currency (e.g. USD).
+- **Unified portfolio** — Stocks, ETFs, crypto, metals, real estate, fixed income, and cash in one place. Add holdings in multiple currencies; the app converts to a single base currency (e.g. USD) so you see one total.
 - **Live & cached prices** — Alpha Vantage for equities (optional); CoinGecko for crypto and gold; Supabase-backed price cache to reduce API usage.
 - **Breakdown & fundamentals** — Portfolio value chart (Breakdown tab), candlestick charts per holding, earnings calendar, analyst sentiment, price targets, and portfolio vs benchmark comparison.
 - **Analysis & insights** — Stax Score, allocation donut, concentration bars, TWRR/Sharpe, benchmark comparison, dividend analytics (Pro).
