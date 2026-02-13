@@ -40,7 +40,6 @@ Reddit and investing communities repeatedly ask for the same thing: “one app f
 - **Insights:** Stax Score and a taste of allocation/concentration; deeper analysis and benchmarks are gated.
 - **Alerts** for maturities, dividends, and custom events (within the one reminder schedule).
 - **CSV import** and **Ethereum wallet import** for crypto.
-- **Guest mode** so users can try the app without signing up.
 
 Free users hit the paywall when they add a 16th holding, create a second reminder schedule, or tap into **Market Pulse**, **Deep Analysis**, or **Dividend analytics** in Insights.
 
