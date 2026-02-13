@@ -2,7 +2,7 @@
 
 _About the project: what inspired you, what you learned, how you built it, and the challenges you faced._
 
-**Link to problem, target audience & monetization (1–2 pages):** [PROPOSAL.md](../PROPOSAL.md) (or `https://github.com/YOUR_ORG/stax/blob/main/PROPOSAL.md` if the repo is public).
+**Link to problem, target audience & monetization (1–2 pages):** [PROPOSAL.md](../PROPOSAL.md).
 
 ---
 
