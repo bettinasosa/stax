@@ -1,4 +1,4 @@
-# Stax — Technical Documentation
+# Stax Technical Documentation
 
 This document describes the tech stack, application architecture, and RevenueCat implementation for the Stax portfolio tracker.
 
@@ -8,47 +8,47 @@ This document describes the tech stack, application architecture, and RevenueCat
 
 ### Runtime & framework
 
-| Layer | Technology |
-|-------|------------|
-| **Runtime** | React Native with Expo (SDK 54+) |
-| **Language** | TypeScript |
-| **React** | 19.x |
+| Layer          | Technology                                                                     |
+| -------------- | ------------------------------------------------------------------------------ |
+| **Runtime**    | React Native with Expo (SDK 54+)                                               |
+| **Language**   | TypeScript                                                                     |
+| **React**      | 19.x                                                                           |
 | **Navigation** | React Navigation 7 — `@react-navigation/native`, `native-stack`, `bottom-tabs` |
 
 ### Data & storage
 
-| Layer | Technology |
-|-------|------------|
-| **Local DB** | SQLite via `expo-sqlite` — single file `stax.db`, migrations run in-app on startup |
-| **Validation** | Zod — all DTOs, input schemas, and response shapes; TypeScript types inferred from schemas |
+| Layer                       | Technology                                                                                                                       |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Local DB**                | SQLite via `expo-sqlite` — single file `stax.db`, migrations run in-app on startup                                               |
+| **Validation**              | Zod — all DTOs, input schemas, and response shapes; TypeScript types inferred from schemas                                       |
 | **Auth & optional backend** | Supabase — Auth for sign-up/sign-in; optional cloud backup and price cache (see [Supabase Price Cache](SUPABASE_PRICE_CACHE.md)) |
 
 ### Services & integrations
 
-| Purpose | Technology |
-|--------|------------|
-| **Payments / subscriptions** | RevenueCat via `react-native-purchases` (see [RevenueCat implementation](#3-revenuecat-implementation) below) |
-| **Pricing — equities** | Alpha Vantage (optional); Finnhub / Yahoo Finance fallbacks; Supabase price cache to reduce API usage |
-| **Pricing — crypto & metals** | CoinGecko (no API key required for basic tier) |
-| **FX rates** | Derived from pricing APIs and configurable base currency |
-| **Notifications** | `expo-notifications` — reminders for dividends, maturities, custom events |
-| **Export** | `expo-print` + `expo-sharing` for PDF; CSV export; optional cloud backup |
+| Purpose                       | Technology                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Payments / subscriptions**  | RevenueCat via `react-native-purchases` (see [RevenueCat implementation](#3-revenuecat-implementation) below) |
+| **Pricing — equities**        | Alpha Vantage (optional); Finnhub / Yahoo Finance fallbacks; Supabase price cache to reduce API usage         |
+| **Pricing — crypto & metals** | CoinGecko (no API key required for basic tier)                                                                |
+| **FX rates**                  | Derived from pricing APIs and configurable base currency                                                      |
+| **Notifications**             | `expo-notifications` — reminders for dividends, maturities, custom events                                     |
+| **Export**                    | `expo-print` + `expo-sharing` for PDF; CSV export; optional cloud backup                                      |
 
 ### UI & assets
 
-| Layer | Technology |
-|-------|------------|
-| **Charts** | `react-native-chart-kit` + `react-native-svg` |
-| **Fonts** | `@expo-google-fonts/inter`, `@expo-google-fonts/fraunces` (loaded via `expo-font`) |
-| **Styling** | StyleSheet + shared `theme` (`src/utils/theme.ts`) — no Tailwind (React Native) |
+| Layer       | Technology                                                                         |
+| ----------- | ---------------------------------------------------------------------------------- |
+| **Charts**  | `react-native-chart-kit` + `react-native-svg`                                      |
+| **Fonts**   | `@expo-google-fonts/inter`, `@expo-google-fonts/fraunces` (loaded via `expo-font`) |
+| **Styling** | StyleSheet + shared `theme` (`src/utils/theme.ts`) — no Tailwind (React Native)    |
 
 ### Development & quality
 
-| Tool | Purpose |
-|------|---------|
-| **ESLint** | Linting (Expo config + TypeScript) |
-| **Prettier** | Formatting |
-| **Vitest** | Unit tests (hooks, utils, repositories) |
+| Tool                                | Purpose                                      |
+| ----------------------------------- | -------------------------------------------- |
+| **ESLint**                          | Linting (Expo config + TypeScript)           |
+| **Prettier**                        | Formatting                                   |
+| **Vitest**                          | Unit tests (hooks, utils, repositories)      |
 | **EAS (Expo Application Services)** | iOS/Android builds and TestFlight submission |
 
 ---
@@ -73,21 +73,21 @@ App.tsx
 
 ### Folder structure
 
-| Path | Responsibility |
-|------|----------------|
-| `src/app` | Root navigator, tab/stack setup, navigation params (e.g. Paywall `trigger`), header buttons |
-| `src/contexts` | `AuthContext` (auth + onboarding), `EntitlementsContext` (Pro status, purchase, restore) |
-| `src/features/portfolio` | Overview screen, holdings list, portfolio selector, portfolio stats |
-| `src/features/asset` | Add/edit asset, holding detail, events, wallet import, listed asset form |
-| `src/features/analysis` | Insights tab: Stax Score, allocation, concentration, performance, paywall, entitlements hook |
-| `src/features/charts` | Breakdown (charts), candlesticks, benchmarks, comparison, fundamentals |
-| `src/features/liability` | Net worth: add/edit liabilities (Pro) |
-| `src/features/settings` | Settings, CSV import, cloud backup (Pro when Supabase configured), restore purchases |
-| `src/features/alerts` | Alerts list, upcoming reminders |
-| `src/data` | SQLite schema and migrations (`db.ts`), repositories (portfolio, holding, event, price_point, liability, lot, transaction, snapshot), Zod schemas |
-| `src/services` | Pricing (Alpha Vantage, CoinGecko, cache), RevenueCat, notifications, analytics, PDF, CSV import/export, cloud backup, FX |
-| `src/components` | Reusable UI (buttons, inputs, date picker, etc.) |
-| `src/utils` | Theme, money formatting, constants, UUID |
+| Path                     | Responsibility                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app`                | Root navigator, tab/stack setup, navigation params (e.g. Paywall `trigger`), header buttons                                                       |
+| `src/contexts`           | `AuthContext` (auth + onboarding), `EntitlementsContext` (Pro status, purchase, restore)                                                          |
+| `src/features/portfolio` | Overview screen, holdings list, portfolio selector, portfolio stats                                                                               |
+| `src/features/asset`     | Add/edit asset, holding detail, events, wallet import, listed asset form                                                                          |
+| `src/features/analysis`  | Insights tab: Stax Score, allocation, concentration, performance, paywall, entitlements hook                                                      |
+| `src/features/charts`    | Breakdown (charts), candlesticks, benchmarks, comparison, fundamentals                                                                            |
+| `src/features/liability` | Net worth: add/edit liabilities (Pro)                                                                                                             |
+| `src/features/settings`  | Settings, CSV import, cloud backup (Pro when Supabase configured), restore purchases                                                              |
+| `src/features/alerts`    | Alerts list, upcoming reminders                                                                                                                   |
+| `src/data`               | SQLite schema and migrations (`db.ts`), repositories (portfolio, holding, event, price_point, liability, lot, transaction, snapshot), Zod schemas |
+| `src/services`           | Pricing (Alpha Vantage, CoinGecko, cache), RevenueCat, notifications, analytics, PDF, CSV import/export, cloud backup, FX                         |
+| `src/components`         | Reusable UI (buttons, inputs, date picker, etc.)                                                                                                  |
+| `src/utils`              | Theme, money formatting, constants, UUID                                                                                                          |
 
 ### Data layer
 
@@ -119,23 +119,23 @@ Stax uses [RevenueCat](https://www.revenuecat.com/) and the `react-native-purcha
 ### Configuration
 
 - **When:** `configureRevenueCat()` is called once at app startup in `App.tsx` (before any UI).
-- **Keys:**  
-  - iOS: `EXPO_PUBLIC_REVENUECAT_API_KEY_IOS`  
+- **Keys:**
+  - iOS: `EXPO_PUBLIC_REVENUECAT_API_KEY_IOS`
   - Android: `EXPO_PUBLIC_REVENUECAT_API_KEY_ANDROID`  
-  Keys are read at build time (Expo env). If neither key is set, the RevenueCat SDK is not configured and all entitlement checks resolve to “not Pro.”
+    Keys are read at build time (Expo env). If neither key is set, the RevenueCat SDK is not configured and all entitlement checks resolve to “not Pro.”
 - **Idempotency:** A module-level flag ensures `Purchases.configure()` is only called once.
 
 ### Service layer (`src/services/revenuecat.ts`)
 
-| Function | Purpose |
-|----------|---------|
-| `configureRevenueCat()` | One-time SDK init with platform-specific API key. |
-| `isRevenueCatConfigured()` | Returns whether at least one API key is set (used to show/hide paywall and “pricing unavailable” messaging). |
-| `getCustomerInfo()` | Fetches current `CustomerInfo` (entitlements). Returns `null` if no keys or on error. |
-| `isProFromCustomerInfo(customerInfo)` | Returns whether the `Stax Pro` entitlement is active. |
-| `getOfferings()` | Fetches current offerings and packages (for paywall pricing). |
-| `purchasePackage(pkg)` | Runs the purchase flow; re-fetches `CustomerInfo` after success so entitlements are up to date; returns `null` on user cancel, throws on other errors. |
-| `restorePurchases()` | Restores previous purchases and returns updated `CustomerInfo` (or `null`). |
+| Function                              | Purpose                                                                                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `configureRevenueCat()`               | One-time SDK init with platform-specific API key.                                                                                                      |
+| `isRevenueCatConfigured()`            | Returns whether at least one API key is set (used to show/hide paywall and “pricing unavailable” messaging).                                           |
+| `getCustomerInfo()`                   | Fetches current `CustomerInfo` (entitlements). Returns `null` if no keys or on error.                                                                  |
+| `isProFromCustomerInfo(customerInfo)` | Returns whether the `Stax Pro` entitlement is active.                                                                                                  |
+| `getOfferings()`                      | Fetches current offerings and packages (for paywall pricing).                                                                                          |
+| `purchasePackage(pkg)`                | Runs the purchase flow; re-fetches `CustomerInfo` after success so entitlements are up to date; returns `null` on user cancel, throws on other errors. |
+| `restorePurchases()`                  | Restores previous purchases and returns updated `CustomerInfo` (or `null`).                                                                            |
 
 Entitlement identifier is the constant **`Stax Pro`** (must match the product/entitlement in RevenueCat dashboard).
 
@@ -143,26 +143,26 @@ Entitlement identifier is the constant **`Stax Pro`** (must match the product/en
 
 - **`EntitlementsContext`** (`src/contexts/EntitlementsContext.tsx`) is the single source of truth for Pro status.
 - **Provider placement:** Wraps the main app (inside `RootNavigator`), so all tabs and screens (Overview, Holdings, Charts, Insights, Settings, Paywall) share the same `isPro` and purchase/restore callbacks.
-- **Behavior:**  
-  - On mount: fetches `CustomerInfo` and sets `isPro` from `isProFromCustomerInfo(info)`.  
-  - On app foreground: subscribes to `AppState` and calls `refresh()` when app becomes `active` so that restores or purchases made elsewhere (e.g. another device) are reflected.  
-  - `refresh()`: re-fetches `CustomerInfo` and updates `isPro`.  
+- **Behavior:**
+  - On mount: fetches `CustomerInfo` and sets `isPro` from `isProFromCustomerInfo(info)`.
+  - On app foreground: subscribes to `AppState` and calls `refresh()` when app becomes `active` so that restores or purchases made elsewhere (e.g. another device) are reflected.
+  - `refresh()`: re-fetches `CustomerInfo` and updates `isPro`.
   - `purchase(pkg)` / `restorePurchases()`: after a successful purchase or restore, updates `isPro` from the returned `CustomerInfo`.
 - **Hook:** `useEntitlements()` in `src/features/analysis/useEntitlements.ts` simply exposes `useEntitlementsContext()` so feature code does not depend on context directly.
 
 ### Paywall screen (`src/features/analysis/PaywallScreen.tsx`)
 
-- **When shown:**  
-  - From Analysis (Insights) tab when the user taps a Pro-gated section.  
-  - From other flows when a free-tier limit is hit (e.g. 16th holding, second reminder schedule, net worth with liabilities, benchmark comparison, etc.).  
+- **When shown:**
+  - From Analysis (Insights) tab when the user taps a Pro-gated section.
+  - From other flows when a free-tier limit is hit (e.g. 16th holding, second reminder schedule, net worth with liabilities, benchmark comparison, etc.).
   - Navigated to as a stack screen; can receive a `trigger` param for benefit-first messaging (e.g. “Add more than 25 holdings”).
-- **Behavior:**  
-  - If `isPro` is already true, the component renders nothing (screen can be dismissed).  
-  - On open: calls `refresh()` so entitlement is up to date (e.g. after restore on another device).  
-  - Fetches offerings via `getOfferings()` and displays `current.availablePackages` (annual pre-selected when available).  
-  - Displays package options with labels (Annual, Monthly, etc.), trial badge when `introPrice` is present, and price strings from the store.  
-  - Subscribe button: calls `purchase(selectedPkg)`; on success, fires `onSuccess` (e.g. navigates back) and tracks trial/purchase in analytics.  
-  - Restore: calls `restorePurchases()`; on success, fires `onSuccess`.  
+- **Behavior:**
+  - If `isPro` is already true, the component renders nothing (screen can be dismissed).
+  - On open: calls `refresh()` so entitlement is up to date (e.g. after restore on another device).
+  - Fetches offerings via `getOfferings()` and displays `current.availablePackages` (annual pre-selected when available).
+  - Displays package options with labels (Annual, Monthly, etc.), trial badge when `introPrice` is present, and price strings from the store.
+  - Subscribe button: calls `purchase(selectedPkg)`; on success, fires `onSuccess` (e.g. navigates back) and tracks trial/purchase in analytics.
+  - Restore: calls `restorePurchases()`; on success, fires `onSuccess`.
   - “Maybe later” calls `onDismiss` when provided.
 - **When RevenueCat is not configured:** Paywall can still be shown (e.g. from limits), but copy indicates “Subscription pricing unavailable in this build” and offerings are empty.
 
@@ -180,17 +180,17 @@ All of the above use `useEntitlements().isPro` (or the context’s `isPro`) to d
 
 ### Free vs Pro (summary)
 
-| Capability | Free | Pro |
-|------------|------|-----|
-| Holdings | 25 max | Unlimited |
-| Reminder schedules | 1 | Unlimited |
-| Stax Score, allocation, concentration | No | Yes |
-| TWRR, Sharpe, benchmarks | No | Yes |
-| Dividend analytics | No | Yes |
-| Compare portfolios / benchmarks | No | Yes |
-| Liabilities / net worth | No | Yes |
-| PDF report | No | Yes |
-| Cloud backup | No | Yes (when Supabase configured) |
+| Capability                            | Free   | Pro                            |
+| ------------------------------------- | ------ | ------------------------------ |
+| Holdings                              | 25 max | Unlimited                      |
+| Reminder schedules                    | 1      | Unlimited                      |
+| Stax Score, allocation, concentration | No     | Yes                            |
+| TWRR, Sharpe, benchmarks              | No     | Yes                            |
+| Dividend analytics                    | No     | Yes                            |
+| Compare portfolios / benchmarks       | No     | Yes                            |
+| Liabilities / net worth               | No     | Yes                            |
+| PDF report                            | No     | Yes                            |
+| Cloud backup                          | No     | Yes (when Supabase configured) |
 
 ### Testing and builds
 
