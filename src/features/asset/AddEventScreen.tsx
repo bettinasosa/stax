@@ -13,13 +13,18 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { eventRepo, holdingRepo } from '../../data';
 import { createEventSchema } from '../../data/schemas';
-import { scheduleEventNotification, cancelEventNotification } from '../../services/notifications';
+import {
+  scheduleEventNotification,
+  cancelEventNotification,
+  ensureNotificationPermission,
+} from '../../services/notifications';
 import { useEntitlements } from '../analysis/useEntitlements';
 import { FREE_REMINDER_SCHEDULES_LIMIT } from '../../utils/constants';
 import { EVENT_KINDS, DEFAULT_REMIND_DAYS_BEFORE } from '../../utils/constants';
 import { trackEventCreated } from '../../services/analytics';
 import type { EventKind } from '../../utils/constants';
 import { theme } from '../../utils/theme';
+import { DatePickerField } from '../../components/ui/DatePickerField';
 
 type Params = { AddEvent: { holdingId: string; eventId?: string } };
 
@@ -89,7 +94,7 @@ export function AddEventScreen() {
       amount: amount ? parseFloat(amount) : undefined,
       currency: currency || undefined,
       remindDaysBefore: parseInt(remindDaysBefore, 10) || DEFAULT_REMIND_DAYS_BEFORE,
-      note: note || undefined,
+      note: note?.trim() || undefined,
     });
     if (!parsed.success) {
       Alert.alert('Validation error', parsed.error.message);
@@ -97,6 +102,7 @@ export function AddEventScreen() {
     }
     setSaving(true);
     try {
+      const hasPermission = await ensureNotificationPermission();
       if (isEdit && eventId) {
         await cancelEventNotification(eventId);
         const updated = await eventRepo.update(db, eventId, {
@@ -112,6 +118,13 @@ export function AddEventScreen() {
         const created = await eventRepo.create(db, parsed.data);
         await scheduleEventNotification(created);
         trackEventCreated();
+      }
+      if (!hasPermission) {
+        Alert.alert(
+          'Reminder saved',
+          'Enable notifications in Settings to get alert when the reminder is due.',
+          [{ text: 'OK' }]
+        );
       }
       navigation.goBack();
     } catch (e) {
@@ -145,13 +158,7 @@ export function AddEventScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      <Text style={styles.label}>Date</Text>
-      <TextInput
-        style={styles.input}
-        value={date}
-        onChangeText={setDate}
-        placeholder="YYYY-MM-DD"
-      />
+      <DatePickerField label="Date" value={date} onChange={setDate} placeholder="Tap to pick date" />
       <Text style={styles.label}>Amount (optional)</Text>
       <TextInput
         style={styles.input}

@@ -21,6 +21,13 @@ import { ProfileHeaderButton } from '../../app/ProfileHeaderButton';
 
 type SortKey = 'value' | 'dailyPct' | 'pnlPct' | 'name';
 
+/** Format acquired date for display. */
+function formatAcquiredDate(acquiredAt: string | null | undefined): string | null {
+  if (!acquiredAt) return null;
+  const d = new Date(acquiredAt);
+  return Number.isNaN(d.getTime()) ? null : `Acquired ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
 /** Subtitle line for a holding row by type (ticker, coupon, APY, rental, etc.). */
 function holdingSubtitle(holding: Holding): string {
   const meta = holding.metadata as {
@@ -182,6 +189,7 @@ export function HoldingsScreen() {
 
   const renderItem = ({ item }: { item: HoldingWithValue }) => {
     const subtitle = holdingSubtitle(item.holding);
+    const acquiredLabel = formatAcquiredDate(item.holding.acquiredAt ?? undefined);
     const pnl = pnlByHoldingId.get(item.holding.id);
     return (
       <View style={styles.rowWrapper}>
@@ -196,6 +204,9 @@ export function HoldingsScreen() {
             </Text>
             {subtitle ? (
               <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+            ) : null}
+            {acquiredLabel ? (
+              <Text style={styles.acquiredDate} numberOfLines={1}>{acquiredLabel}</Text>
             ) : null}
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{item.holding.type.replace(/_/g, ' ')}</Text>
@@ -477,6 +488,11 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   subtitle: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    marginBottom: 2,
+  },
+  acquiredDate: {
     ...theme.typography.small,
     color: theme.colors.textTertiary,
     marginBottom: theme.spacing.xs,

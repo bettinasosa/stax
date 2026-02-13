@@ -16,6 +16,7 @@ import type { Holding } from '../../data/schemas';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { trackDividendLogged } from '../../services/analytics';
 import { theme } from '../../utils/theme';
+import { DatePickerField } from '../../components/ui/DatePickerField';
 
 type Params = { LogDividend: { holdingId: string } };
 
@@ -108,13 +109,7 @@ export function LogDividendScreen() {
         keyboardType="decimal-pad"
       />
 
-      <Text style={styles.label}>Date</Text>
-      <TextInput
-        style={styles.input}
-        value={date}
-        onChangeText={setDate}
-        placeholder="YYYY-MM-DD"
-      />
+      <DatePickerField label="Date" value={date} onChange={setDate} placeholder="Tap to pick date" />
 
       <Text style={styles.label}>Currency</Text>
       <TextInput

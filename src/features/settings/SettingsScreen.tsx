@@ -10,6 +10,7 @@ import {
   TextInput,
   Linking,
   Platform,
+  Switch,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -19,6 +20,10 @@ import { useEntitlements } from '../analysis/useEntitlements';
 import {
   requestNotificationPermission,
   getNotificationPermission,
+  getRemindersEnabled,
+  setRemindersEnabled,
+  cancelAllScheduledNotifications,
+  scheduleEventNotification,
 } from '../../services/notifications';
 import { trackNotificationEnabled } from '../../services/analytics';
 import { SUPPORTED_PRICE_FEEDS } from '../../services/supportedFeeds';
@@ -74,22 +79,36 @@ export function SettingsScreen() {
           eventsCount: eventsTotal,
         });
       }
-      const enabled = await getNotificationPermission();
-      if (!cancelled) setNotificationsEnabled(enabled);
+      const permission = await getNotificationPermission();
+      const preference = await getRemindersEnabled();
+      if (!cancelled) setNotificationsEnabled(permission && preference);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [db, portfolio, activePortfolioId]);
 
-  const handleEnableNotifications = async () => {
-    const granted = await requestNotificationPermission();
-    setNotificationsEnabled(granted);
-    if (granted) trackNotificationEnabled();
-    if (!granted) {
-      Alert.alert(
-        'Notifications',
-        'Permission denied. You can enable notifications in system settings.'
-      );
+  const handleNotificationsToggle = async (value: boolean) => {
+    if (value) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        Alert.alert(
+          'Notifications',
+          'Permission denied. You can enable notifications in system settings.'
+        );
+        return;
+      }
+      await setRemindersEnabled(true);
+      setNotificationsEnabled(true);
+      trackNotificationEnabled();
+      const portfolioId = activePortfolioId ?? portfolio?.id;
+      if (portfolioId) {
+        const events = await eventRepo.getEventsByPortfolioId(db, portfolioId);
+        for (const ev of events) await scheduleEventNotification(ev);
+      }
+    } else {
+      await setRemindersEnabled(false);
+      await cancelAllScheduledNotifications();
+      setNotificationsEnabled(false);
     }
   };
 
@@ -228,17 +247,22 @@ export function SettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notifications</Text>
-        <Text style={styles.muted}>
-          {notificationsEnabled
-            ? 'Notifications are enabled for event reminders.'
-            : 'Enable to get reminders for maturity, valuation, etc.'}
-        </Text>
-        {!notificationsEnabled && (
-          <TouchableOpacity style={styles.buttonSecondary} onPress={handleEnableNotifications}>
-            <Text style={styles.buttonSecondaryText}>Enable notifications</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.notificationsRow}>
+          <View style={styles.notificationsLabelBlock}>
+            <Text style={styles.sectionTitle}>Reminders</Text>
+            <Text style={styles.muted}>
+              {notificationsEnabled
+                ? 'Event reminders (maturity, valuation, etc.) are on.'
+                : 'Turn on to get reminders before event dates.'}
+            </Text>
+          </View>
+          <Switch
+            value={notificationsEnabled}
+            onValueChange={handleNotificationsToggle}
+            trackColor={{ false: theme.colors.border, true: theme.colors.accent + '80' }}
+            thumbColor={notificationsEnabled ? theme.colors.accent : theme.colors.textTertiary}
+          />
+        </View>
       </View>
 
       <View style={styles.section}>
@@ -345,6 +369,15 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySemi,
     color: theme.colors.textPrimary,
     marginBottom: theme.spacing.xs,
+  },
+  notificationsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  notificationsLabelBlock: {
+    flex: 1,
   },
   input: {
     borderWidth: 1,

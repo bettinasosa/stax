@@ -74,6 +74,7 @@ export const holdingSchema = z
     costBasisCurrency: z.string().length(3).nullish(),
     manualValue: z.number().nonnegative().nullish(),
     currency: z.string().min(1),
+    acquiredAt: z.string().datetime().nullish(),
     metadata: holdingMetadataSchema,
   })
   .strict();
@@ -118,7 +119,7 @@ export const eventSchema = z
     amount: z.number().optional(),
     currency: z.string().length(3).optional(),
     remindDaysBefore: z.number().int().nonnegative(),
-    note: z.string().optional(),
+    note: z.string().nullish(),
   })
   .strict();
 
@@ -143,6 +144,7 @@ export const createListedHoldingSchema = z
     costBasis: z.number().nonnegative().optional(),
     costBasisCurrency: z.string().length(3).optional(),
     currency: z.string().min(1),
+    acquiredAt: z.string().datetime().optional(),
     metadata: holdingMetadataSchema,
   })
   .strict();
@@ -157,6 +159,7 @@ export const createNonListedHoldingSchema = z
     name: z.string().min(1),
     manualValue: z.number().nonnegative(),
     currency: z.string().min(1),
+    acquiredAt: z.string().datetime().optional(),
     note: z.string().optional(),
     metadata: holdingMetadataSchema,
   })

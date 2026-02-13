@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.bettinasosa.stax",
-      "buildNumber": "7",
+      "buildNumber": "9",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -33,7 +33,9 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-font"
+      "expo-font",
+      "expo-notifications",
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {

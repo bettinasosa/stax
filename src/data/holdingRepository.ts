@@ -9,7 +9,7 @@ import {
 import { generateId } from '../utils/uuid';
 
 const SELECT_COLS = `id, portfolio_id as portfolioId, type, name, symbol, quantity, cost_basis as costBasis,
-  cost_basis_currency as costBasisCurrency, manual_value as manualValue, currency, metadata`;
+  cost_basis_currency as costBasisCurrency, manual_value as manualValue, currency, acquired_at as acquiredAt, metadata`;
 
 function parseMetadata(meta: string | null): Holding['metadata'] {
   if (meta == null || meta === '') return undefined;
@@ -64,8 +64,8 @@ export async function createListed(
   const id = generateId();
   const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
   await db.runAsync(
-    `INSERT INTO holding (id, portfolio_id, type, name, symbol, quantity, cost_basis, cost_basis_currency, currency, metadata)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO holding (id, portfolio_id, type, name, symbol, quantity, cost_basis, cost_basis_currency, currency, acquired_at, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.portfolioId,
@@ -76,6 +76,7 @@ export async function createListed(
       input.costBasis ?? null,
       input.costBasisCurrency ?? null,
       input.currency,
+      input.acquiredAt ?? null,
       metadataJson,
     ]
   );
@@ -92,8 +93,8 @@ export async function createNonListed(
   const id = generateId();
   const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
   await db.runAsync(
-    `INSERT INTO holding (id, portfolio_id, type, name, manual_value, currency, metadata)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO holding (id, portfolio_id, type, name, manual_value, currency, acquired_at, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.portfolioId,
@@ -101,6 +102,7 @@ export async function createNonListed(
       input.name,
       input.manualValue,
       input.currency,
+      input.acquiredAt ?? null,
       metadataJson,
     ]
   );
@@ -119,7 +121,7 @@ export async function update(
   if (!existing) return null;
 
   const updates: string[] = [];
-  const values: unknown[] = [];
+  const values: (string | number | null)[] = [];
 
   if (input.name !== undefined) {
     updates.push('name = ?');
@@ -152,6 +154,10 @@ export async function update(
   if (input.currency !== undefined) {
     updates.push('currency = ?');
     values.push(input.currency);
+  }
+  if (input.acquiredAt !== undefined) {
+    updates.push('acquired_at = ?');
+    values.push(input.acquiredAt);
   }
   if (input.metadata !== undefined) {
     updates.push('metadata = ?');

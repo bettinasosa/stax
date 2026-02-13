@@ -125,6 +125,21 @@ export async function remove(db: SQLiteDatabase, id: string): Promise<void> {
 }
 
 /**
+ * Get all events for a portfolio (across all holdings). Used to re-schedule reminders when user turns notifications back on.
+ */
+export async function getEventsByPortfolioId(
+  db: SQLiteDatabase,
+  portfolioId: string
+): Promise<Event[]> {
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    `SELECT ${SELECT_COLS} FROM event e
+     JOIN holding h ON e.holding_id = h.id WHERE h.portfolio_id = ? ORDER BY e.date ASC`,
+    [portfolioId]
+  );
+  return rows.map(rowToEvent);
+}
+
+/**
  * Count events (reminder schedules) for a portfolio (via holdings).
  */
 export async function countSchedulesByPortfolioId(

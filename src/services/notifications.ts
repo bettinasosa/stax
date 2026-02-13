@@ -1,7 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import type { Event } from '../data/schemas';
 
 const NOTIFICATION_PREFIX = 'stax_event_';
+const REMINDERS_ENABLED_KEY = 'stax_reminders_enabled';
 
 /**
  * Use event.id as notification identifier so we can cancel by event.
@@ -27,10 +29,43 @@ export async function getNotificationPermission(): Promise<boolean> {
 }
 
 /**
+ * Ensure we have notification permission; request if not yet granted.
+ * Returns true if permission is granted (now or already), false otherwise.
+ */
+export async function ensureNotificationPermission(): Promise<boolean> {
+  const current = await getNotificationPermission();
+  if (current) return true;
+  return requestNotificationPermission();
+}
+
+/**
+ * In-app preference: are reminder notifications enabled? (Default true.)
+ * When false, we do not schedule new notifications and user can cancel existing ones from Settings.
+ */
+export async function getRemindersEnabled(): Promise<boolean> {
+  const v = await AsyncStorage.getItem(REMINDERS_ENABLED_KEY);
+  return v !== '0';
+}
+
+export async function setRemindersEnabled(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(REMINDERS_ENABLED_KEY, enabled ? '1' : '0');
+}
+
+/**
+ * Cancel all scheduled notifications (e.g. when user turns reminders off in Settings).
+ */
+export async function cancelAllScheduledNotifications(): Promise<void> {
+  await Notifications.cancelAllScheduledNotificationsAsync();
+}
+
+/**
  * Schedule a local notification for an event: fires at (event date - remindDaysBefore days).
  * If the trigger date is in the past, the notification is not scheduled.
+ * Does nothing if reminders are disabled in Settings. Does not request permission; call ensureNotificationPermission() before if you want to prompt.
  */
 export async function scheduleEventNotification(event: Event): Promise<void> {
+  const enabled = await getRemindersEnabled();
+  if (!enabled) return;
   const eventDate = new Date(event.date);
   const triggerDate = new Date(eventDate);
   triggerDate.setDate(triggerDate.getDate() - event.remindDaysBefore);

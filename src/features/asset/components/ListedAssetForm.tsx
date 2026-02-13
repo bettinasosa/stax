@@ -25,6 +25,7 @@ import { FREE_HOLDINGS_LIMIT } from '../../../utils/constants';
 import type { AssetTypeListed } from '../../../utils/constants';
 import { DEFAULT_PORTFOLIO_ID } from '../../../data/db';
 import { theme } from '../../../utils/theme';
+import { DatePickerField } from '../../../components/ui/DatePickerField';
 
 const METAL_OPTIONS = [
   { symbol: 'XAU', label: 'Gold (XAU)' },
@@ -65,6 +66,7 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
   const [quantity, setQuantity] = useState('');
   const [costBasis, setCostBasis] = useState('');
   const [currency, setCurrency] = useState('USD');
+  const [acquiredDate, setAcquiredDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [assetName, setAssetName] = useState('');
   const [enrichedMeta, setEnrichedMeta] = useState<{ country?: string; sector?: string } | null>(null);
@@ -170,6 +172,11 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
     if (listedType === 'crypto' && cryptoProviderId) {
       metadata = { ...metadata, providerId: cryptoProviderId };
     }
+    let acquiredAt: string | undefined;
+    if (acquiredDate.trim()) {
+      const d = new Date(acquiredDate.trim());
+      if (!Number.isNaN(d.getTime())) acquiredAt = d.toISOString();
+    }
     const parsed = createListedHoldingSchema.safeParse({
       portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: listedType,
@@ -179,6 +186,7 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
       costBasis: costBasis ? parseFloat(costBasis) : undefined,
       costBasisCurrency: currency,
       currency,
+      acquiredAt,
       metadata,
     });
     if (!parsed.success) {
@@ -309,6 +317,12 @@ export function ListedAssetForm({ listedType, isCryptoManual, onBack }: ListedAs
         value={currency}
         onChangeText={setCurrency}
         placeholder="USD"
+      />
+      <DatePickerField
+        label="Date acquired (optional)"
+        value={acquiredDate}
+        onChange={setAcquiredDate}
+        placeholder="Tap to pick date"
       />
       <TouchableOpacity
         style={[styles.button, saving && styles.buttonDisabled]}

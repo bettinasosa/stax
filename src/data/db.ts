@@ -78,6 +78,7 @@ const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS idx_portfolio_value_snapshot_portfolio_time ON portfolio_value_snapshot(portfolio_id, timestamp);
   `,
   `ALTER TABLE portfolio ADD COLUMN archived_at TEXT;`,
+  `ALTER TABLE holding ADD COLUMN acquired_at TEXT;`,
   `
   CREATE TABLE IF NOT EXISTS "transaction" (
     id TEXT PRIMARY KEY NOT NULL,

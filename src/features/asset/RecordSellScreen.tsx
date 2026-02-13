@@ -18,6 +18,7 @@ import { usePortfolio } from '../portfolio/usePortfolio';
 import { formatMoney } from '../../utils/money';
 import { trackSellRecorded } from '../../services/analytics';
 import { theme } from '../../utils/theme';
+import { DatePickerField } from '../../components/ui/DatePickerField';
 
 type Params = { RecordSell: { holdingId: string } };
 
@@ -153,13 +154,7 @@ export function RecordSellScreen() {
         keyboardType="decimal-pad"
       />
 
-      <Text style={styles.label}>Date</Text>
-      <TextInput
-        style={styles.input}
-        value={date}
-        onChangeText={setDate}
-        placeholder="YYYY-MM-DD"
-      />
+      <DatePickerField label="Date" value={date} onChange={setDate} placeholder="Tap to pick date" />
 
       <Text style={styles.label}>Currency</Text>
       <TextInput

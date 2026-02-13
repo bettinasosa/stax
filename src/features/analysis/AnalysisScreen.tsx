@@ -53,7 +53,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 export function AnalysisScreen() {
   const navigation = useNavigation();
   const { isPro, refresh: refreshEntitlements } = useEntitlements();
-  const { portfolio, holdings, pricesBySymbol, loading, refresh, fxRates, transactions, valueHistory } = usePortfolio();
+  const { portfolio, holdings, pricesBySymbol, loading, refresh, fxRates, transactions, valueHistory, totalBase } = usePortfolio();
   const baseCurrency = portfolio?.baseCurrency ?? 'USD';
   const [activeTab, setActiveTab] = useState<InsightsTab>('score');
 
@@ -108,6 +108,20 @@ export function AnalysisScreen() {
   const twrr = useMemo(() => computeTWRR(valueHistory, transactions), [valueHistory, transactions]);
   const sharpe = useMemo(() => computeSharpe(valueHistory), [valueHistory]);
   const dividendAnalytics = useDividendAnalytics(transactions, holdings);
+
+  /** Include a live "today" point using the same totalBase as Overview so the chart matches the portfolio value shown elsewhere. */
+  const valueHistoryForChart = useMemo(() => {
+    if (valueHistory.length === 0) return valueHistory.map((v) => ({ timestamp: v.timestamp, valueBase: v.valueBase }));
+    const today = new Date().toISOString().slice(0, 10);
+    const lastDate = valueHistory[valueHistory.length - 1].timestamp.slice(0, 10);
+    if (lastDate >= today) {
+      return valueHistory.map((v) => ({ timestamp: v.timestamp, valueBase: v.valueBase }));
+    }
+    return [
+      ...valueHistory.map((v) => ({ timestamp: v.timestamp, valueBase: v.valueBase })),
+      { timestamp: new Date().toISOString(), valueBase: totalBase },
+    ];
+  }, [valueHistory, totalBase]);
 
   if (holdings.length === 0) {
     return (
@@ -227,7 +241,7 @@ export function AnalysisScreen() {
       {activeTab === 'analysis' && (
         <>
           {/* Benchmark comparison vs S&P 500 */}
-          <BenchmarkComparisonCard valueHistory={valueHistory} />
+          <BenchmarkComparisonCard valueHistory={valueHistoryForChart} />
 
           {/* Deep analysis explainer */}
           <View style={styles.section}>

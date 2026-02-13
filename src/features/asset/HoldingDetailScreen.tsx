@@ -19,6 +19,7 @@ import { formatMoney } from '../../utils/money';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { holdingValueInBase } from '../portfolio/portfolioUtils';
 import { theme } from '../../utils/theme';
+import { DatePickerField } from '../../components/ui/DatePickerField';
 import { fetchWalletHoldings } from '../../services/ethplorer';
 import { useFinancialMetrics } from '../charts/hooks/useFinancialMetrics';
 import { useCompanyProfile } from '../charts/hooks/useCompanyProfile';
@@ -87,6 +88,7 @@ export function HoldingDetailScreen() {
   const [editQuantity, setEditQuantity] = useState('');
   const [editManualValue, setEditManualValue] = useState('');
   const [editCurrency, setEditCurrency] = useState('');
+  const [editAcquiredAt, setEditAcquiredAt] = useState('');
 
   const load = useCallback(async () => {
     const h = await holdingRepo.getById(db, holdingId);
@@ -96,6 +98,7 @@ export function HoldingDetailScreen() {
       setEditQuantity(h.quantity != null ? String(h.quantity) : '');
       setEditManualValue(h.manualValue != null ? String(h.manualValue) : '');
       setEditCurrency(h.currency);
+      setEditAcquiredAt(h.acquiredAt ? h.acquiredAt.slice(0, 10) : '');
     }
     const [e, l, t] = await Promise.all([
       eventRepo.getByHoldingId(db, holdingId),
@@ -132,9 +135,21 @@ export function HoldingDetailScreen() {
 
   const handleSaveHolding = async () => {
     if (!holding) return;
-    const updates: { name?: string; quantity?: number; manualValue?: number; currency?: string } = {};
+    const updates: {
+      name?: string;
+      quantity?: number;
+      manualValue?: number;
+      currency?: string;
+      acquiredAt?: string | null;
+    } = {};
     updates.name = editName.trim() || holding.name;
     updates.currency = editCurrency || holding.currency;
+    if (editAcquiredAt.trim()) {
+      const d = new Date(editAcquiredAt.trim());
+      if (!Number.isNaN(d.getTime())) updates.acquiredAt = d.toISOString();
+    } else {
+      updates.acquiredAt = null;
+    }
     if (isListed(holding.type)) {
       const q = parseFloat(editQuantity);
       if (!Number.isNaN(q) && q >= 0) updates.quantity = q;
@@ -278,6 +293,15 @@ export function HoldingDetailScreen() {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{holding.type.replace(/_/g, ' ')}</Text>
         </View>
+        {holding.acquiredAt && (() => {
+          const d = new Date(holding.acquiredAt);
+          if (Number.isNaN(d.getTime())) return null;
+          return (
+            <Text style={styles.muted}>
+              Acquired {d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            </Text>
+          );
+        })()}
         {lots.length > 0 && (() => {
           const agg = lotRepo.aggregateLotsCost(lots);
           const hasUnpriced = lots.some((l) => l.costBasisUsdTotal == null);
@@ -587,6 +611,12 @@ export function HoldingDetailScreen() {
           value={editCurrency}
           onChangeText={setEditCurrency}
           placeholder="USD"
+        />
+        <DatePickerField
+          label="Date acquired (optional)"
+          value={editAcquiredAt}
+          onChange={setEditAcquiredAt}
+          placeholder="Tap to pick date"
         />
         <TouchableOpacity
           style={[styles.button, saving && styles.buttonDisabled]}

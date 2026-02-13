@@ -12,7 +12,10 @@ import {
 import { useSQLiteContext } from 'expo-sqlite';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { holdingRepo, eventRepo } from '../../data';
-import { scheduleEventNotification } from '../../services/notifications';
+import {
+  scheduleEventNotification,
+  ensureNotificationPermission,
+} from '../../services/notifications';
 import { useEntitlements } from '../analysis/useEntitlements';
 import { trackHoldingAdded, trackEventCreated } from '../../services/analytics';
 import { createNonListedHoldingSchema } from '../../data/schemas';
@@ -28,6 +31,7 @@ import type { AssetType, AssetTypeListed, AssetTypeNonListed, EventKind } from '
 import { DEFAULT_PORTFOLIO_ID } from '../../data/db';
 import { usePortfolio } from '../portfolio/usePortfolio';
 import { theme } from '../../utils/theme';
+import { DatePickerField } from '../../components/ui/DatePickerField';
 import { ListedAssetForm } from './components/ListedAssetForm';
 import { WalletImportForm } from './components/WalletImportForm';
 
@@ -91,6 +95,7 @@ export function AddAssetScreen() {
   const [name, setName] = useState('');
   const [manualValue, setManualValue] = useState('');
   const [nonListedCurrency, setNonListedCurrency] = useState('USD');
+  const [nonListedAcquiredDate, setNonListedAcquiredDate] = useState('');
   const [eventKind, setEventKind] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [remindDaysBefore, setRemindDaysBefore] = useState(String(DEFAULT_REMIND_DAYS_BEFORE));
@@ -180,12 +185,22 @@ export function AddAssetScreen() {
       }
     }
 
+    let acquiredAt: string | undefined;
+    if (nonListedAcquiredDate.trim()) {
+      const d = new Date(nonListedAcquiredDate.trim());
+      if (!Number.isNaN(d.getTime())) acquiredAt = d.toISOString();
+    }
+    if (nonListedType === 'real_estate' && !acquiredAt && purchaseDate.trim()) {
+      const d = new Date(purchaseDate.trim());
+      if (!Number.isNaN(d.getTime())) acquiredAt = d.toISOString();
+    }
     const parsed = createNonListedHoldingSchema.safeParse({
       portfolioId: activePortfolioId ?? DEFAULT_PORTFOLIO_ID,
       type: nonListedType,
       name: name.trim(),
       manualValue: val,
       currency: nonListedCurrency,
+      acquiredAt,
       metadata,
     });
     if (!parsed.success) {
@@ -199,6 +214,7 @@ export function AddAssetScreen() {
       if (eventKind && eventDate.trim()) {
         const date = new Date(eventDate.trim());
         if (!Number.isNaN(date.getTime())) {
+          const hasPermission = await ensureNotificationPermission();
           const created = await eventRepo.create(db, {
             holdingId: holding.id,
             kind: eventKind as EventKind,
@@ -207,6 +223,13 @@ export function AddAssetScreen() {
           });
           await scheduleEventNotification(created);
           trackEventCreated();
+          if (!hasPermission) {
+            Alert.alert(
+              'Reminder saved',
+              'Enable notifications in Settings to get alert when the reminder is due.',
+              [{ text: 'OK' }]
+            );
+          }
         }
       }
       refresh();
@@ -307,6 +330,12 @@ export function AddAssetScreen() {
         onChangeText={setNonListedCurrency}
         placeholder="USD"
       />
+      <DatePickerField
+        label="Date acquired (optional)"
+        value={nonListedAcquiredDate}
+        onChange={setNonListedAcquiredDate}
+        placeholder="Tap to pick date"
+      />
 
       {nonListedType === 'cash' && (
         <>
@@ -337,8 +366,7 @@ export function AddAssetScreen() {
           <TextInput style={styles.input} value={couponRate} onChangeText={setCouponRate} placeholder="4.5" keyboardType="decimal-pad" />
           <Text style={styles.label}>Issuer</Text>
           <TextInput style={styles.input} value={issuer} onChangeText={setIssuer} placeholder="e.g., US Treasury, Apple Inc." />
-          <Text style={styles.label}>Maturity Date</Text>
-          <TextInput style={styles.input} value={maturityDate} onChangeText={setMaturityDate} placeholder="YYYY-MM-DD" />
+          <DatePickerField label="Maturity Date" value={maturityDate} onChange={setMaturityDate} placeholder="Tap to pick" />
           <Text style={styles.label}>Yield to Maturity (%)</Text>
           <TextInput style={styles.input} value={yieldToMaturity} onChangeText={setYieldToMaturity} placeholder="3.8" keyboardType="decimal-pad" />
           <Text style={styles.label}>Credit Rating</Text>
@@ -359,8 +387,7 @@ export function AddAssetScreen() {
           <TextInput style={styles.input} value={rentalIncome} onChangeText={setRentalIncome} placeholder="2500" keyboardType="decimal-pad" />
           <Text style={styles.label}>Purchase Price</Text>
           <TextInput style={styles.input} value={purchasePrice} onChangeText={setPurchasePrice} placeholder="500000" keyboardType="decimal-pad" />
-          <Text style={styles.label}>Purchase Date</Text>
-          <TextInput style={styles.input} value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" />
+          <DatePickerField label="Purchase Date" value={purchaseDate} onChange={setPurchaseDate} placeholder="Tap to pick" />
         </>
       )}
 
@@ -381,8 +408,7 @@ export function AddAssetScreen() {
       </View>
       {eventKind ? (
         <>
-          <Text style={styles.label}>Event date</Text>
-          <TextInput style={styles.input} value={eventDate} onChangeText={setEventDate} placeholder="YYYY-MM-DD" />
+          <DatePickerField label="Event date" value={eventDate} onChange={setEventDate} placeholder="Tap to pick" />
           <Text style={styles.label}>Remind me (days before)</Text>
           <TextInput style={styles.input} value={remindDaysBefore} onChangeText={setRemindDaysBefore} placeholder="3" keyboardType="number-pad" />
         </>

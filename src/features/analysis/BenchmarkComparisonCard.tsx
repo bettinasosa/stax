@@ -148,6 +148,13 @@ export function BenchmarkComparisonCard({ valueHistory }: Props) {
           )}
         </View>
       )}
+
+      {/* Hint when history is sparse so users know why the period looks short */}
+      {hasData && portfolioReturns && portfolioReturns.length <= 3 && (
+        <Text style={styles.hintText}>
+          Based on {portfolioReturns.length} snapshot{portfolioReturns.length !== 1 ? 's' : ''}. Pull to refresh on Overview to record more history.
+        </Text>
+      )}
     </View>
   );
 }
@@ -252,4 +259,11 @@ const styles = StyleSheet.create({
   },
   positive: { color: theme.colors.positive },
   negative: { color: theme.colors.negative },
+  hintText: {
+    ...theme.typography.small,
+    color: theme.colors.textTertiary,
+    textAlign: 'center',
+    marginTop: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.xs,
+  },
 });

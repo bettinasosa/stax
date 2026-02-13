@@ -10,7 +10,7 @@ Net worth is scattered: brokerage accounts, DeFi wallets, property, gold, bonds.
 
 - **Unified portfolio** — Stocks, ETFs, crypto, metals, real estate, and fixed income in one place with a single base currency (e.g. USD).
 - **Live & cached prices** — Alpha Vantage for equities (optional); CoinGecko for crypto and gold; Supabase-backed price cache to reduce API usage.
-- **Charts & fundamentals** — Candlestick charts, earnings calendar, analyst sentiment, price targets, and portfolio vs benchmark comparison.
+- **Breakdown & fundamentals** — Portfolio value chart (Breakdown tab), candlestick charts per holding, earnings calendar, analyst sentiment, price targets, and portfolio vs benchmark comparison.
 - **Analysis & insights** — Stax Score, allocation donut, concentration bars, TWRR/Sharpe, benchmark comparison, dividend analytics (Pro).
 - **Alerts & events** — Reminders for dividends, options expiry, and custom events; timeline of past and upcoming events.
 - **Import & export** — CSV import for holdings; CSV/PDF export; optional cloud backup (Supabase).
